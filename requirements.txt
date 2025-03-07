@@ -1,0 +1,6 @@
+trimesh
+pyglet<2
+networkx
+lxml
+scipy
+pydantic
