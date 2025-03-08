@@ -1,12 +1,12 @@
 # Points and Paths Data Format Specification
 
-This document describes the JSON format for storing 3D points and paths data. The format supports both individual points and collections of points organized into paths.
+This document describes the JSON format for storing 3D points and paths data. The format supports both individual points and collections of points organized into paths. Some paths include additional acoustic information.
 
 ## Data Types
 
 ### Point
 
-A Point represents a location in 3D space with optional metadata.
+A point in 3D space with optional metadata.
 
 **Required Fields:**
 
@@ -15,113 +15,157 @@ A Point represents a location in 3D space with optional metadata.
 - `z` (number): Z coordinate
 
 **Optional Fields:**
-Note: additional optional fields may be added in the future.
 
 - `size` (number): Point size, must be greater than 0 (default: 1.0)
 - `name` (string | null): Custom name for the point. If null or omitted, will be auto-generated as "Point(x,y,z)"
 
-Example:
+### Vector
 
-```json
-{
-  "x": 1.0,
-  "y": 2.0,
-  "z": 3.0,
-  "size": 1.5,
-  "name": "Start Point"
-}
-```
+A 3D vector representing a direction.
+
+**Required Fields:**
+
+- `x` (number): X component
+- `y` (number): Y component
+- `z` (number): Z component
+
+### Ray
+
+A ray defined by an origin point and direction vector.
+
+**Required Fields:**
+
+- `origin` (Point): Starting point of the ray
+- `direction` (Vector): Direction vector of the ray (should be normalized)
+
+### Shot
+
+Information about an acoustic ray shot.
+
+**Required Fields:**
+
+- `ray` (Ray): The ray that was shot
+- `gain` (number): Initial gain of the shot in dB
 
 ### Path
 
-A Path represents a sequence of points with styling metadata. The order of the points is important.
+A sequence of points with optional styling metadata.
 
 **Required Fields:**
 
 - `points` (array): Array of Point objects (minimum 1 point)
 
 **Optional Fields:**
-Note: additional optional fields may be added in the future.
 
-- `name` (string | null): Custom name for the path. If null or omitted, will be auto-generated as "Path-{N}pts"
+- `name` (string | null): Custom name for the path
 - `color` (string): Hex color code (default: "#0000FF")
-- `thickness` (number): Line thickness, must be greater than 0 (default: 1.0)
+- `thickness` (number): Line thickness (default: 1.0)
+
+### AcousticPath
+
+A special type of path representing an acoustic reflection path.
+
+**Required Fields:**
+
+- `points` (array): Array of Point objects, starting with the shot origin (minimum 1 point)
+- `shot` (Shot): The shot that created this path
+- `gain` (number): Total gain in dB relative to direct signal
+- `distance` (number): Total distance traveled in meters
+- `nearestApproach` (NearestApproach): Information about closest point to listener
+
+**Optional Fields:**
+
+- `name` (string | null): Custom name for the path
+- `color` (string): Hex color code (default: "#FF0000")
+- `thickness` (number): Line thickness (default: 1.0)
+
+### NearestApproach
+
+Information about the point where the path comes closest to the listening position.
+
+**Required Fields:**
+
+- `position` (Point): Position of nearest approach
+- `distance` (number): Distance to listening position at nearest approach
+
+## Example
+
+```json
+{
+  "points": [
+    { "x": 0.0, "y": 0.0, "z": 1.5 }, // Shot origin
+    { "x": 2.0, "y": 3.0, "z": 1.5 }, // First reflection
+    { "x": 4.0, "y": 3.0, "z": 1.5 } // Second reflection
+  ],
+  "shot": {
+    "ray": {
+      "origin": { "x": 0.0, "y": 0.0, "z": 1.5 },
+      "direction": { "x": 0.707, "y": 0.707, "z": 0.0 }
+    },
+    "gain": -3.0
+  },
+  "gain": -12.0,
+  "distance": 5.2,
+  "nearestApproach": {
+    "position": { "x": 3.0, "y": 3.0, "z": 1.5 },
+    "distance": 0.8
+  },
+  "color": "#FF0000",
+  "thickness": 0.5
+}
+```
+
+## File Format
+
+The JSON file must be a dictionary with the following structure:
+
+```json
+{
+  "points": [Point],
+  "paths": [Path],
+  "acousticPaths": [AcousticPath]
+}
+```
+
+All fields are optional - if a category has no entries, it can either be omitted or set to an empty array.
 
 Example:
 
 ```json
 {
-  "points": [
-    { "x": 1.0, "y": 2.0, "z": 3.0 },
-    { "x": 4.0, "y": 5.0, "z": 6.0 }
-  ],
-  "name": "Sample Path",
-  "color": "#FF0000",
-  "thickness": 2.0
-}
-```
-
-## File Format Options
-
-The JSON file can be structured in three different ways:
-
-### 1. Mixed Dictionary Format
-
-```json
-{
-  "points": [
-    { "x": 1.0, "y": 2.0, "z": 3.0 },
-    { "x": 4.0, "y": 5.0, "z": 6.0 }
-  ],
+  "points": [{ "x": 0.0, "y": 0.0, "z": 0.0, "name": "Origin" }],
   "paths": [
     {
       "points": [
-        { "x": 7.0, "y": 8.0, "z": 9.0 },
-        { "x": 10.0, "y": 11.0, "z": 12.0 }
+        { "x": 0.0, "y": 0.0, "z": 0.0 },
+        { "x": 1.0, "y": 1.0, "z": 1.0 }
       ],
-      "name": "Path1"
+      "color": "#0000FF"
+    }
+  ],
+  "acousticPaths": [
+    {
+      "points": [
+        { "x": 0.0, "y": 0.0, "z": 1.5 },
+        { "x": 2.0, "y": 3.0, "z": 1.5 },
+        { "x": 4.0, "y": 3.0, "z": 1.5 }
+      ],
+      "shot": {
+        "ray": {
+          "origin": { "x": 0.0, "y": 0.0, "z": 1.5 },
+          "direction": { "x": 0.707, "y": 0.707, "z": 0.0 }
+        },
+        "gain": -3.0
+      },
+      "gain": -12.0,
+      "distance": 5.2,
+      "nearestApproach": {
+        "position": { "x": 3.0, "y": 3.0, "z": 1.5 },
+        "distance": 0.8
+      },
+      "color": "#FF0000",
+      "thickness": 0.5
     }
   ]
 }
 ```
-
-### 2. Array Format
-
-Can contain either all points or all paths:
-
-```json
-[
-  { "x": 1.0, "y": 2.0, "z": 3.0 },
-  { "x": 4.0, "y": 5.0, "z": 6.0 }
-]
-```
-
-### 3. Single Path Format
-
-A single path object:
-
-```json
-{
-  "points": [
-    { "x": 1.0, "y": 2.0, "z": 3.0 },
-    { "x": 4.0, "y": 5.0, "z": 6.0 }
-  ],
-  "name": "Single Path"
-}
-```
-
-## Validation Rules
-
-1. Points must have all three coordinates (x, y, z)
-2. Size and thickness must be greater than 0
-3. Colors must be valid hex codes (#RRGGBB format)
-4. Paths must contain at least one point
-5. Additional properties not defined in the schema will be ignored
-
-## Implementation Notes
-
-- When names are omitted or null:
-  - Points will be named "Point(x,y,z)" with coordinates rounded to 1 decimal
-  - Paths will be named "Path-{N}pts" where N is the number of points
-- The format supports both single objects and collections
-- Arrays must contain either all points or all paths (no mixing)
