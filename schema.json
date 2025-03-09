@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "Points and Paths Data Format",
-  "description": "Schema for representing 3D points, paths, and acoustic paths",
+  "description": "Schema for representing 3D points, paths, acoustic paths, and zones",
   "type": "object",
   "properties": {
     "points": {
@@ -20,6 +20,12 @@
       "type": "array",
       "items": {
         "$ref": "#/definitions/AcousticPath"
+      }
+    },
+    "zones": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/Zone"
       }
     }
   },
@@ -123,6 +129,29 @@
           "type": "number",
           "minimum": 0,
           "default": 1.0
+        }
+      }
+    },
+    "Zone": {
+      "type": "object",
+      "required": ["x", "y", "z", "radius"],
+      "properties": {
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "z": { "type": "number" },
+        "radius": { "type": "number", "minimum": 0 },
+        "name": {
+          "type": ["string", "null"]
+        },
+        "color": {
+          "type": "string",
+          "pattern": "^#[0-9A-Fa-f]{6}$"
+        },
+        "transparency": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "default": 0.8
         }
       }
     }

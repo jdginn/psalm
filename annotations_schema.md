@@ -115,6 +115,23 @@ Information about the point where the path comes closest to the listening positi
 }
 ```
 
+### Zone
+
+A spherical region in 3D space.
+
+**Required Fields:**
+
+- `x` (number): X coordinate of center
+- `y` (number): Y coordinate of center
+- `z` (number): Z coordinate of center
+- `radius` (number): Radius of the sphere in meters
+
+**Optional Fields:**
+
+- `name` (string | null): Custom name for the zone
+- `color` (string): Hex color code (default: randomly generated)
+- `transparency` (number): Transparency value between 0 and 1 (default: 0.8)
+
 ## File Format
 
 The JSON file must be a dictionary with the following structure:
@@ -123,7 +140,8 @@ The JSON file must be a dictionary with the following structure:
 {
   "points": [Point],
   "paths": [Path],
-  "acousticPaths": [AcousticPath]
+  "acousticPaths": [AcousticPath],
+  "zones": [Zone]
 }
 ```
 
@@ -165,6 +183,17 @@ Example:
       },
       "color": "#FF0000",
       "thickness": 0.5
+    }
+  ],
+  "zones": [
+    {
+      "x": 1.0,
+      "y": 2.0,
+      "z": 1.5,
+      "radius": 0.5,
+      "name": "Example Zone",
+      "color": "#00FF00",
+      "transparency": 0.8
     }
   ]
 }
