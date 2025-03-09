@@ -137,3 +137,29 @@ class AcousticPath:
             color=data.get("color", "#FF0000"),
             thickness=data.get("thickness", 1.0),
         )
+
+
+@dataclass
+class Zone:
+    """A spherical region in 3D space."""
+
+    x: float
+    y: float
+    z: float
+    radius: float
+    color: Optional[str] = None
+    name: Optional[str] = None
+    transparency: float = 0.8
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "Zone":
+        """Create Zone from dictionary representation."""
+        return cls(
+            x=data["x"],
+            y=data["y"],
+            z=data["z"],
+            radius=data["radius"],
+            name=data.get("name"),
+            color=data.get("color"),
+            transparency=data.get("transparency", 0.8),
+        )
