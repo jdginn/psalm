@@ -28,6 +28,15 @@ class Point:
         """Convert point to [x, y, z] array."""
         return [self.x, self.y, self.z]
 
+    def to_dict(self) -> dict:
+        """Convert Point to dictionary representation."""
+        result = {"x": self.x, "y": self.y, "z": self.z}
+        if self.size != 1.0:
+            result["size"] = self.size
+        if self.name is not None:
+            result["name"] = self.name
+        return result
+
 
 @dataclass
 class Vector:
@@ -46,6 +55,10 @@ class Vector:
         """Convert vector to [x, y, z] array."""
         return [self.x, self.y, self.z]
 
+    def to_dict(self) -> dict:
+        """Convert Vector to dictionary representation."""
+        return {"x": self.x, "y": self.y, "z": self.z}
+
 
 @dataclass
 class Ray:
@@ -62,6 +75,10 @@ class Ray:
             direction=Vector.from_dict(data["direction"]),
         )
 
+    def to_dict(self) -> dict:
+        """Convert Ray to dictionary representation."""
+        return {"origin": self.origin.to_dict(), "direction": self.direction.to_dict()}
+
 
 @dataclass
 class Shot:
@@ -74,6 +91,10 @@ class Shot:
     def from_dict(cls, data: dict) -> "Shot":
         """Create Shot from dictionary representation."""
         return cls(ray=Ray.from_dict(data["ray"]), gain=data["gain"])
+
+    def to_dict(self) -> dict:
+        """Convert Shot to dictionary representation."""
+        return {"ray": self.ray.to_dict(), "gain": self.gain}
 
 
 @dataclass
@@ -89,6 +110,10 @@ class NearestApproach:
         return cls(
             position=Point.from_dict(data["position"]), distance=data["distance"]
         )
+
+    def to_dict(self) -> dict:
+        """Convert NearestApproach to dictionary representation."""
+        return {"position": self.position.to_dict(), "distance": self.distance}
 
 
 @dataclass
@@ -109,6 +134,17 @@ class Path:
             color=data.get("color", "#0000FF"),
             thickness=data.get("thickness", 1.0),
         )
+
+    def to_dict(self) -> dict:
+        """Convert Path to dictionary representation."""
+        result = {"points": [p.to_dict() for p in self.points]}
+        if self.name is not None:
+            result["name"] = self.name
+        if self.color != "#0000FF":
+            result["color"] = self.color
+        if self.thickness != 1.0:
+            result["thickness"] = self.thickness
+        return result
 
 
 @dataclass
@@ -138,6 +174,23 @@ class AcousticPath:
             thickness=data.get("thickness", 1.0),
         )
 
+    def to_dict(self) -> dict:
+        """Convert AcousticPath to dictionary representation."""
+        result = {
+            "points": [p.to_dict() for p in self.points],
+            "shot": self.shot.to_dict(),
+            "gain": self.gain,
+            "distance": self.distance,
+            "nearestApproach": self.nearest_approach.to_dict(),
+        }
+        if self.name is not None:
+            result["name"] = self.name
+        if self.color != "#FF0000":
+            result["color"] = self.color
+        if self.thickness != 1.0:
+            result["thickness"] = self.thickness
+        return result
+
 
 @dataclass
 class Zone:
@@ -163,3 +216,46 @@ class Zone:
             color=data.get("color"),
             transparency=data.get("transparency", 0.8),
         )
+
+    def to_dict(self) -> dict:
+        """Convert Zone to dictionary representation."""
+        result = {"x": self.x, "y": self.y, "z": self.z, "radius": self.radius}
+        if self.name is not None:
+            result["name"] = self.name
+        if self.color is not None:
+            result["color"] = self.color
+        if self.transparency != 0.8:
+            result["transparency"] = self.transparency
+        return result
+
+
+def serialize_scene(
+    points: List[Point] = None,
+    paths: List[Path] = None,
+    acoustic_paths: List[AcousticPath] = None,
+    zones: List[Zone] = None,
+) -> dict:
+    """
+    Serialize a complete scene to a dictionary following the schema specification.
+
+    Args:
+        points: List of Point objects
+        paths: List of Path objects
+        acoustic_paths: List of AcousticPath objects
+        zones: List of Zone objects
+
+    Returns:
+        Dictionary representation of the scene
+    """
+    result = {}
+
+    if points:
+        result["points"] = [p.to_dict() for p in points]
+    if paths:
+        result["paths"] = [p.to_dict() for p in paths]
+    if acoustic_paths:
+        result["acousticPaths"] = [p.to_dict() for p in acoustic_paths]
+    if zones:
+        result["zones"] = [z.to_dict() for z in zones]
+
+    return result
