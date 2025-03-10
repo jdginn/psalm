@@ -3,6 +3,7 @@ import json
 import trimesh
 import typing
 import random
+import time
 import numpy as np
 from models import Point, Path, AcousticPath, Zone
 
@@ -71,17 +72,144 @@ def create_zone_geometry(zone: Zone) -> trimesh.Trimesh:
     return sphere
 
 
+import multiprocessing
+from multiprocessing import Process, Queue
+from typing import Optional
+import trimesh.viewer
+
+
+def show_scene_and_wait(scene: trimesh.Scene, key_queue: Queue) -> None:
+    """Helper function to show scene and capture key press in separate process."""
+
+    def key_callback(scene, callback_queue: Queue) -> Optional[bool]:
+        """Callback that puts pressed key into queue."""
+        key = scene.last_key
+        if key == "q":
+            callback_queue.put("q")
+            return True  # This signals to close the window
+        return False
+
+    scene.show(flags={"wireframe": True})
+
+    # # Create viewer with custom callback
+    # viewer = trimesh.viewer.SceneViewer(
+    #     scene=scene,
+    #     callback=lambda s: key_callback(s, key_queue),
+    #     flags={"background": True},  # This prevents the viewer from blocking
+    # )
+    #
+    # # Start the viewer loop
+    # viewer.run()
+
+
+def visualize_reflections(
+    room_mesh: trimesh.Trimesh,
+    acoustic_paths: list[AcousticPath],
+    points: list[Point] = None,
+    paths: list[Path] = None,
+    zones: list[Zone] = None,
+) -> None:
+    """Interactive visualization of acoustic reflections with additional geometries."""
+    current_index = 0
+    total_paths = len(acoustic_paths)
+
+    while 0 <= current_index < total_paths:
+        # Create fresh scene for this reflection
+        scene = trimesh.Scene()
+
+        # Add room mesh
+        scene.add_geometry(room_mesh)
+
+        # Add static geometries
+        if points:
+            pc = create_point_cloud(points)
+            if pc:
+                scene.add_geometry(pc)
+
+        if paths:
+            for path in paths:
+                scene.add_geometry(create_path_geometry(path))
+
+        if zones:
+            for i, zone in enumerate(zones):
+                scene.add_geometry(create_zone_geometry(zone), node_name=f"zone_{i}")
+
+        # Add current acoustic path
+        current_path = acoustic_paths[current_index]
+        scene.add_geometry(create_path_geometry(current_path))
+        scene.add_geometry(
+            trimesh.PointCloud([current_path.nearest_approach.position.to_array()]),
+        )
+
+        print(f"\nViewing acoustic path {current_index + 1} of {total_paths}")
+        print("Press 'q' to advance to next path")
+        print("Press Ctrl+C to exit program")
+
+        try:
+            # # Create queue for key press communication
+            key_queue = Queue()
+
+            # Create and start visualization process
+            viz_process = Process(target=show_scene_and_wait, args=(scene, key_queue))
+            viz_process.start()
+
+            # # Block until we receive 'q' in the queue
+            # key = key_queue.get()  # This blocks until a key is put in the queue
+            # print("unblocked")
+
+            # Get keyboard input from main process
+            while True:
+                key = input().lower()
+                if key == "n":
+                    current_index += 1
+                    break
+                elif key == "p":
+                    current_index = max(0, current_index - 1)
+                    break
+                elif key == "q":
+                    return
+                else:
+                    print(
+                        "Invalid input. Use 'n' for next, 'p' for previous, 'q' to quit"
+                    )
+                    continue
+
+            # Clean up the visualization process
+            if viz_process.is_alive():
+                print("Terminating visualization process")
+                viz_process.terminate()
+            print("Joining process")
+            viz_process.join()
+
+            # Move to next path
+            if key == "n":
+                current_index += 1
+
+        except KeyboardInterrupt:
+            print("\nExiting program...")
+            if viz_process.is_alive():
+                viz_process.terminate()
+                viz_process.join()
+            sys.exit(0)
+
+        except Exception as e:
+            print(f"\nError: {e}")
+            if viz_process.is_alive():
+                viz_process.terminate()
+                viz_process.join()
+            return
+
+    print("\nCompleted viewing all paths")
+
+
 def main():
     """Main function to visualize 3D mesh with annotations."""
     parser = argparse.ArgumentParser()
     parser.add_argument("mesh", help="Path to the mesh file")
     parser.add_argument(
-        "--annotations", help="Annotations for the mesh (optional)", default=None
-    )
-    parser.add_argument(
-        "--path",
-        type=int,
-        help="Index of the acoustic path to visualize (0-based). If not provided, shows all paths.",
+        "--annotations",
+        type=str,
+        help="Annotations for the mesh (optional)",
         default=None,
     )
     args = parser.parse_args()
@@ -104,59 +232,33 @@ def main():
     if args.annotations:
         data = load_json_data(args.annotations)
 
+        points = []
+        paths = []
+        acoustic_paths = []
+        zones = []
+
         # Handle standalone points
         if "points" in data:
             points = [Point.from_dict(p) for p in data["points"]]
-            pc = create_point_cloud(points)
-            if pc:
-                scene.add_geometry(pc)
 
         # Handle regular paths
         if "paths" in data:
-            for path_data in data["paths"]:
-                path = Path.from_dict(path_data)
-                scene.add_geometry(create_path_geometry(path))
+            paths = [Path.from_dict(p) for p in data["paths"]]
 
         # Handle acoustic paths
         if "acousticPaths" in data:
             acoustic_paths = [AcousticPath.from_dict(p) for p in data["acousticPaths"]]
 
-            if args.path is not None:
-                # Validate path index
-                if 0 <= args.path < len(acoustic_paths):
-                    # Show only the specified path
-                    path = acoustic_paths[args.path]
-                    print(f"\nShowing acoustic path {args.path}")
-                    print(f"Number of points: {len(path.points)}")
-                    print(f"Nearest approach: {path.nearest_approach.position}")
-                    scene.add_geometry(create_path_geometry(path))
-                    scene.add_geometry(
-                        trimesh.PointCloud([path.nearest_approach.position.to_array()]),
-                    )
-                else:
-                    print(
-                        f"\nError: Path index {args.path} is out of range. "
-                        f"Must be between 0 and {len(acoustic_paths)-1}"
-                    )
-                    return
-            else:
-                # Show all paths
-                print(f"\nShowing all {len(acoustic_paths)} acoustic paths")
-                for path in acoustic_paths:
-                    scene.add_geometry(create_path_geometry(path))
-                    scene.add_geometry(
-                        trimesh.PointCloud([path.nearest_approach.position.to_array()]),
-                    )
-
         # Add zones
         if "zones" in data:
-            for i, zone_data in enumerate(data["zones"]):
-                zone = Zone.from_dict(zone_data)
-                zone_geom = create_zone_geometry(zone)
-                scene.add_geometry(zone_geom, node_name=f"zone_{i}")
+            zones = [Zone.from_dict(p) for p in data["zones"]]
+
+    visualize_reflections(room_mesh, acoustic_paths, points, paths, zones)
 
     scene.show()
 
 
 if __name__ == "__main__":
+    # For macOS support
+    multiprocessing.set_start_method("spawn")
     main()
