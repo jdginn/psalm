@@ -1,11 +1,30 @@
+import sys
 import argparse
 import json
-import trimesh
 import typing
 import random
-import time
 import numpy as np
+import trimesh
 from models import Point, Path, AcousticPath, Zone
+
+# Qt imports
+from PyQt6.QtWidgets import (
+    QApplication,
+    QMainWindow,
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QFrame,
+    QSplitter,
+)
+from PyQt6.QtCore import Qt, QSize
+from PyQt6.QtOpenGLWidgets import QOpenGLWidget
+from PyQt6.QtGui import QSurfaceFormat, QColor
+
+# OpenGL imports
+import OpenGL.GL as gl
 
 
 def load_json_data(file_path: str) -> dict:
@@ -72,193 +91,299 @@ def create_zone_geometry(zone: Zone) -> trimesh.Trimesh:
     return sphere
 
 
-import multiprocessing
-from multiprocessing import Process, Queue
-from typing import Optional
-import trimesh.viewer
+import numpy as np
+from PyQt6.QtCore import Qt, QSize
+from trimesh.viewer.trackball import Trackball  # Add this import
+from OpenGL.GLU import gluPerspective  # Add this import
 
 
-def show_scene_and_wait(scene: trimesh.Scene, key_queue: Queue) -> None:
-    """Helper function to show scene and capture key press in separate process."""
+class TrimeshViewerWidget(QOpenGLWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setMinimumSize(QSize(640, 480))
 
-    def key_callback(scene, callback_queue: Queue) -> Optional[bool]:
-        """Callback that puts pressed key into queue."""
-        key = scene.last_key
-        if key == "q":
-            callback_queue.put("q")
-            return True  # This signals to close the window
-        return False
+        # Camera and scene settings
+        self.scene = None
+        self.camera = trimesh.scene.Camera(fov=(60.0, 45.0), resolution=(800, 600))
 
-    scene.show(flags={"wireframe": True})
+        # Initialize view parameters
+        self._initial_camera_transform = np.eye(4)
+        self.view = {
+            "ball": Trackball(
+                pose=self._initial_camera_transform,
+                size=(800, 600),
+                scale=1.0,
+                target=[0, 0, 0],
+            )
+        }
 
-    # # Create viewer with custom callback
-    # viewer = trimesh.viewer.SceneViewer(
-    #     scene=scene,
-    #     callback=lambda s: key_callback(s, key_queue),
-    #     flags={"background": True},  # This prevents the viewer from blocking
-    # )
-    #
-    # # Start the viewer loop
-    # viewer.run()
+        # Mouse tracking
+        self.setMouseTracking(True)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.last_point = None
+        self.rotating = False
 
+        # Add zoom scale
+        self._zoom_scale = 1.0
 
-def visualize_reflections(
-    room_mesh: trimesh.Trimesh,
-    acoustic_paths: list[AcousticPath],
-    points: list[Point] = None,
-    paths: list[Path] = None,
-    zones: list[Zone] = None,
-) -> None:
-    """Interactive visualization of acoustic reflections with additional geometries."""
-    current_index = 0
-    total_paths = len(acoustic_paths)
+    def initializeGL(self):
+        gl.glEnable(gl.GL_DEPTH_TEST)
+        gl.glEnable(gl.GL_CULL_FACE)
+        gl.glClearColor(0.0, 0.0, 0.0, 1.0)  # Black background
 
-    while 0 <= current_index < total_paths:
-        # Create fresh scene for this reflection
-        scene = trimesh.Scene()
+    def resizeGL(self, width, height):
+        gl.glViewport(0, 0, width, height)
+        gl.glMatrixMode(gl.GL_PROJECTION)
+        gl.glLoadIdentity()
 
-        # Add room mesh
-        scene.add_geometry(room_mesh)
+        aspect = width / float(height)
+        gluPerspective(45.0, aspect, 0.1, 1000.0)
 
-        # Add static geometries
-        if points:
-            pc = create_point_cloud(points)
-            if pc:
-                scene.add_geometry(pc)
+        gl.glMatrixMode(gl.GL_MODELVIEW)
 
-        if paths:
-            for path in paths:
-                scene.add_geometry(create_path_geometry(path))
+        # Update trackball size
+        self.view["ball"].resize((width, height))
 
-        if zones:
-            for i, zone in enumerate(zones):
-                scene.add_geometry(create_zone_geometry(zone), node_name=f"zone_{i}")
+    def mousePressEvent(self, event):
+        self.last_point = event.pos()
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.rotating = True
+            self.view["ball"].down(np.array([event.pos().x(), event.pos().y()]))
 
-        # Add current acoustic path
-        current_path = acoustic_paths[current_index]
-        scene.add_geometry(create_path_geometry(current_path))
-        scene.add_geometry(
-            trimesh.PointCloud([current_path.nearest_approach.position.to_array()]),
-        )
+    def mouseReleaseEvent(self, event):
+        self.rotating = False
+        self.last_point = None
 
-        print(f"\nViewing acoustic path {current_index + 1} of {total_paths}")
-        print("Press 'q' to advance to next path")
-        print("Press Ctrl+C to exit program")
+    def mouseMoveEvent(self, event):
+        if self.rotating:
+            self.view["ball"].drag(np.array([event.pos().x(), event.pos().y()]))
+            self.update()
 
-        try:
-            # # Create queue for key press communication
-            key_queue = Queue()
+    def wheelEvent(self, event):
+        # Scale the view based on the wheel delta
+        delta = event.angleDelta().y() / 120.0
+        self._zoom_scale *= 0.9 if delta < 0 else 1.1
+        self.update()
 
-            # Create and start visualization process
-            viz_process = Process(target=show_scene_and_wait, args=(scene, key_queue))
-            viz_process.start()
-
-            # # Block until we receive 'q' in the queue
-            # key = key_queue.get()  # This blocks until a key is put in the queue
-            # print("unblocked")
-
-            # Get keyboard input from main process
-            while True:
-                key = input().lower()
-                if key == "n":
-                    current_index += 1
-                    break
-                elif key == "p":
-                    current_index = max(0, current_index - 1)
-                    break
-                elif key == "q":
-                    return
-                else:
-                    print(
-                        "Invalid input. Use 'n' for next, 'p' for previous, 'q' to quit"
-                    )
-                    continue
-
-            # Clean up the visualization process
-            if viz_process.is_alive():
-                print("Terminating visualization process")
-                viz_process.terminate()
-            print("Joining process")
-            viz_process.join()
-
-            # Move to next path
-            if key == "n":
-                current_index += 1
-
-        except KeyboardInterrupt:
-            print("\nExiting program...")
-            if viz_process.is_alive():
-                viz_process.terminate()
-                viz_process.join()
-            sys.exit(0)
-
-        except Exception as e:
-            print(f"\nError: {e}")
-            if viz_process.is_alive():
-                viz_process.terminate()
-                viz_process.join()
+    def paintGL(self):
+        if not self.scene:
             return
 
-    print("\nCompleted viewing all paths")
+        gl.glClear(gl.GL_COLOR_BUFFER_BIT | gl.GL_DEPTH_BUFFER_BIT)
+        gl.glLoadIdentity()
+
+        # Apply zoom scale
+        gl.glScalef(self._zoom_scale, self._zoom_scale, self._zoom_scale)
+
+        # Apply camera transform from trackball
+        camera_transform = np.linalg.inv(self.view["ball"].pose)
+        gl.glMultMatrixf(camera_transform.T.ravel())
+
+        # Enable blending for transparency
+        gl.glEnable(gl.GL_BLEND)
+        gl.glBlendFunc(gl.GL_SRC_ALPHA, gl.GL_ONE_MINUS_SRC_ALPHA)
+
+        # Draw all geometries in the scene
+        for name, geometry in self.scene.geometry.items():
+            if isinstance(geometry, trimesh.Trimesh):
+                # Draw mesh as wireframe
+                gl.glPolygonMode(gl.GL_FRONT_AND_BACK, gl.GL_LINE)
+                gl.glColor3f(1.0, 1.0, 1.0)  # White wireframe
+                gl.glBegin(gl.GL_TRIANGLES)
+                for face in geometry.faces:
+                    for vertex in face:
+                        gl.glVertex3fv(geometry.vertices[vertex])
+                gl.glEnd()
+
+            elif isinstance(geometry, trimesh.path.Path3D):
+                # Draw paths
+                gl.glLineWidth(2.0)  # Make lines thicker
+                gl.glBegin(gl.GL_LINE_STRIP)
+
+                # Get color from entity if available, otherwise use default
+                if geometry.entities and hasattr(geometry.entities[0], "color"):
+                    color = geometry.entities[0].color
+                    gl.glColor4f(
+                        color[0] / 255, color[1] / 255, color[2] / 255, color[3] / 255
+                    )
+                else:
+                    gl.glColor4f(1.0, 0.0, 0.0, 0.5)  # Default: semi-transparent red
+
+                for vertex in geometry.vertices:
+                    gl.glVertex3fv(vertex)
+                gl.glEnd()
+
+            elif isinstance(geometry, trimesh.points.PointCloud):
+                # Draw points (like nearest approach points)
+                gl.glPointSize(5.0)
+                gl.glBegin(gl.GL_POINTS)
+                gl.glColor3f(1.0, 1.0, 0.0)  # Yellow points
+                for vertex in geometry.vertices:
+                    gl.glVertex3fv(vertex)
+                gl.glEnd()
+
+        gl.glDisable(gl.GL_BLEND)
+
+    def reset_view(self):
+        if self.scene is not None:
+            self.view["ball"].pose = self._initial_camera_transform
+            self._zoom_scale = 1.0  # Reset zoom
+            self.update()
+
+
+class AcousticPathViewer(QMainWindow):
+    def __init__(self, room_mesh, acoustic_paths, points=None, paths=None, zones=None):
+        super().__init__()
+        self.setWindowTitle("Acoustic Path Viewer")
+
+        # Store data
+        self.room_mesh = room_mesh
+        self.acoustic_paths = acoustic_paths
+        self.points = points or []
+        self.paths = paths or []
+        self.zones = zones or []
+        self.current_index = 0
+
+        # Create central widget and layout
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+        layout = QHBoxLayout(central_widget)
+
+        # Create splitter for resizable panels
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+        layout.addWidget(splitter)
+
+        # Left panel
+        left_panel = QWidget()
+        left_layout = QVBoxLayout(left_panel)
+
+        # Info display
+        self.info_label = QLabel("Path Information")
+        left_layout.addWidget(self.info_label)
+
+        # Navigation controls
+        nav_frame = QFrame()
+        nav_layout = QHBoxLayout(nav_frame)
+
+        self.prev_button = QPushButton("Previous")
+        self.next_button = QPushButton("Next")
+        self.prev_button.clicked.connect(self.show_previous_path)
+        self.next_button.clicked.connect(self.show_next_path)
+
+        nav_layout.addWidget(self.prev_button)
+        nav_layout.addWidget(self.next_button)
+        left_layout.addWidget(nav_frame)
+
+        # Reset view button
+        self.reset_button = QPushButton("Reset View")
+        self.reset_button.clicked.connect(self.reset_view)
+        left_layout.addWidget(self.reset_button)
+
+        left_layout.addStretch()
+        left_panel.setLayout(left_layout)
+
+        # Add panels to splitter
+        splitter.addWidget(left_panel)
+
+        # Create and add viewer widget
+        self.viewer_widget = TrimeshViewerWidget()
+        splitter.addWidget(self.viewer_widget)
+
+        # Set splitter proportions
+        splitter.setStretchFactor(0, 1)
+        splitter.setStretchFactor(1, 3)
+
+        # Initial display
+        self.update_display()
+        self.update_info()
+
+    def show_previous_path(self):
+        if self.current_index > 0:
+            self.current_index -= 1
+            self.update_display()
+            self.update_info()
+
+    def show_next_path(self):
+        if self.current_index < len(self.acoustic_paths) - 1:
+            self.current_index += 1
+            self.update_display()
+            self.update_info()
+
+    def reset_view(self):
+        self.viewer_widget.rotation = [30, 45, 0]
+        self.viewer_widget.zoom = -5.0
+        self.viewer_widget.translation = [0, 0, 0]
+        self.viewer_widget.update()
+
+    def update_info(self):
+        current_path = self.acoustic_paths[self.current_index]
+        info_text = (
+            f"Path {self.current_index + 1} of {len(self.acoustic_paths)}\n"
+            f"Points: {len(current_path.points)}\n"
+            f"Nearest approach: {current_path.nearest_approach.position}"
+        )
+        self.info_label.setText(info_text)
+
+    def update_display(self):
+        scene = trimesh.Scene()
+        scene.add_geometry(self.room_mesh, geom_name="room")
+
+        current_path = self.acoustic_paths[self.current_index]
+        scene.add_geometry(create_path_geometry(current_path), geom_name="current_path")
+        scene.add_geometry(
+            trimesh.PointCloud([current_path.nearest_approach.position.to_array()]),
+            geom_name="nearest_approach",
+        )
+
+        self.viewer_widget.scene = scene
+        self.viewer_widget.update()
 
 
 def main():
-    """Main function to visualize 3D mesh with annotations."""
+    # Set up OpenGL format
+    format = QSurfaceFormat()
+    format.setDepthBufferSize(24)
+    format.setStencilBufferSize(8)
+    format.setSamples(4)  # Enable antialiasing
+    format.setVersion(2, 1)
+    QSurfaceFormat.setDefaultFormat(format)
+
+    # Create application
+    app = QApplication(sys.argv)
+
+    # Parse arguments and load data
     parser = argparse.ArgumentParser()
     parser.add_argument("mesh", help="Path to the mesh file")
     parser.add_argument(
-        "--annotations",
-        type=str,
-        help="Annotations for the mesh (optional)",
-        default=None,
+        "--annotations", help="Annotations file (optional)", default=None
     )
     args = parser.parse_args()
 
-    scene = trimesh.Scene()
-
+    # Load mesh and data
     room_mesh = trimesh.load(args.mesh)
     room_mesh.fix_normals()
-    n_faces = len(room_mesh.faces)
-    print("Number of faces:", n_faces)
-    face_colors = np.ones((n_faces, 4), dtype=np.uint8) * [255, 255, 255, 100]
-    room_mesh.visual.face_colors = face_colors
 
-    # Verify the colors were set
-    print(f"Updated face colors shape: {room_mesh.visual.face_colors.shape}")
-    print(f"Sample of face colors: {room_mesh.visual.face_colors[0]}")
-
-    scene.add_geometry(room_mesh)
+    points = []
+    paths = []
+    acoustic_paths = []
+    zones = []
 
     if args.annotations:
         data = load_json_data(args.annotations)
+        points = [Point.from_dict(p) for p in data.get("points", [])]
+        paths = [Path.from_dict(p) for p in data.get("paths", [])]
+        acoustic_paths = [
+            AcousticPath.from_dict(p) for p in data.get("acousticPaths", [])
+        ]
+        zones = [Zone.from_dict(p) for p in data.get("zones", [])]
 
-        points = []
-        paths = []
-        acoustic_paths = []
-        zones = []
+    # Create and show window
+    window = AcousticPathViewer(room_mesh, acoustic_paths, points, paths, zones)
+    window.resize(1200, 800)
+    window.show()
 
-        # Handle standalone points
-        if "points" in data:
-            points = [Point.from_dict(p) for p in data["points"]]
-
-        # Handle regular paths
-        if "paths" in data:
-            paths = [Path.from_dict(p) for p in data["paths"]]
-
-        # Handle acoustic paths
-        if "acousticPaths" in data:
-            acoustic_paths = [AcousticPath.from_dict(p) for p in data["acousticPaths"]]
-
-        # Add zones
-        if "zones" in data:
-            zones = [Zone.from_dict(p) for p in data["zones"]]
-
-    visualize_reflections(room_mesh, acoustic_paths, points, paths, zones)
-
-    scene.show()
+    return app.exec()
 
 
 if __name__ == "__main__":
-    # For macOS support
-    multiprocessing.set_start_method("spawn")
-    main()
+    sys.exit(main())
