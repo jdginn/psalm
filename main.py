@@ -71,67 +71,6 @@ def create_zone_geometry(zone: Zone) -> trimesh.Trimesh:
     return sphere
 
 
-def visualize_reflections(
-    room_mesh: trimesh.Trimesh,
-    acoustic_paths: list[AcousticPath],
-    points: list[Point] = None,
-    paths: list[Path] = None,
-    zones: list[Zone] = None,
-) -> None:
-    """Interactive visualization of acoustic reflections with additional geometries."""
-    current_index = 0
-    total_paths = len(acoustic_paths)
-
-    while 0 <= current_index < total_paths:
-        # Create fresh scene for this reflection
-        scene = trimesh.Scene()
-
-        # Add room mesh
-        scene.add_geometry(room_mesh)
-
-        # Add static geometries (points, regular paths, zones)
-        if points:
-            pc = create_point_cloud(points)
-            if pc:
-                scene.add_geometry(pc)
-
-        if paths:
-            for path in paths:
-                scene.add_geometry(create_path_geometry(path))
-
-        if zones:
-            for i, zone in enumerate(zones):
-                scene.add_geometry(create_zone_geometry(zone), node_name=f"zone_{i}")
-
-        # Add current acoustic path
-        current_path = acoustic_paths[current_index]
-        scene.add_geometry(create_path_geometry(current_path))
-        scene.add_geometry(
-            trimesh.PointCloud([current_path.nearest_approach.position.to_array()]),
-        )
-
-        print(f"\nViewing acoustic path {current_index + 1} of {total_paths}")
-        print("Controls:")
-        print("  'q'         : show next path")
-        print("  'esc'       : exit step-through mode")
-        print("  'w'         : toggle wireframe mode")
-
-        try:
-            # Show scene - this blocks until user closes window
-            scene.show()
-
-            # After window closes with 'q', move to next path
-            current_index += 1
-
-        except (KeyboardInterrupt, SystemExit):
-            # Handle escape key or window close button
-            print("\nExiting step-through mode...")
-            return
-
-    # After showing all paths or if user exits
-    print("\nFinished showing all acoustic paths")
-
-
 def main():
     """Main function to visualize 3D mesh with annotations."""
     parser = argparse.ArgumentParser()
@@ -140,13 +79,15 @@ def main():
         "--annotations", help="Annotations for the mesh (optional)", default=None
     )
     parser.add_argument(
-        "--step-through",
-        action="store_true",
-        help="Enable step-by-step visualization of acoustic paths",
+        "--path",
+        type=int,
+        help="Index of the acoustic path to visualize (0-based). If not provided, shows all paths.",
+        default=None,
     )
     args = parser.parse_args()
 
-    # Load and prepare room mesh
+    scene = trimesh.Scene()
+
     room_mesh = trimesh.load(args.mesh)
     room_mesh.fix_normals()
     n_faces = len(room_mesh.faces)
@@ -154,81 +95,67 @@ def main():
     face_colors = np.ones((n_faces, 4), dtype=np.uint8) * [255, 255, 255, 100]
     room_mesh.visual.face_colors = face_colors
 
+    # Verify the colors were set
+    print(f"Updated face colors shape: {room_mesh.visual.face_colors.shape}")
+    print(f"Sample of face colors: {room_mesh.visual.face_colors[0]}")
+
+    scene.add_geometry(room_mesh)
+
     if args.annotations:
         data = load_json_data(args.annotations)
 
-        # Parse all geometries
-        points = [Point.from_dict(p) for p in data.get("points", [])]
-        paths = [Path.from_dict(p) for p in data.get("paths", [])]
-        acoustic_paths = [
-            AcousticPath.from_dict(p) for p in data.get("acousticPaths", [])
-        ]
-        zones = [Zone.from_dict(z) for z in data.get("zones", [])]
+        # Handle standalone points
+        if "points" in data:
+            points = [Point.from_dict(p) for p in data["points"]]
+            pc = create_point_cloud(points)
+            if pc:
+                scene.add_geometry(pc)
 
-        if args.step_through and acoustic_paths:
-            # Use interactive visualization mode
-            print("\nEntering step-through mode...")
-            visualize_reflections(
-                room_mesh=room_mesh,
-                acoustic_paths=acoustic_paths,
-                points=points,
-                paths=paths,
-                zones=zones,
-            )
-
-            # After step-through mode ends, show all paths
-            print("\nShowing all paths together...")
-            scene = trimesh.Scene()
-            scene.add_geometry(room_mesh)
-
-            # Add all geometries
-            if points:
-                pc = create_point_cloud(points)
-                if pc:
-                    scene.add_geometry(pc)
-
-            for path in paths:
+        # Handle regular paths
+        if "paths" in data:
+            for path_data in data["paths"]:
+                path = Path.from_dict(path_data)
                 scene.add_geometry(create_path_geometry(path))
 
-            for path in acoustic_paths:
-                scene.add_geometry(create_path_geometry(path))
-                scene.add_geometry(
-                    trimesh.PointCloud([path.nearest_approach.position.to_array()]),
-                )
+        # Handle acoustic paths
+        if "acousticPaths" in data:
+            acoustic_paths = [AcousticPath.from_dict(p) for p in data["acousticPaths"]]
 
-            for i, zone in enumerate(zones):
-                scene.add_geometry(create_zone_geometry(zone), node_name=f"zone_{i}")
+            if args.path is not None:
+                # Validate path index
+                if 0 <= args.path < len(acoustic_paths):
+                    # Show only the specified path
+                    path = acoustic_paths[args.path]
+                    print(f"\nShowing acoustic path {args.path}")
+                    print(f"Number of points: {len(path.points)}")
+                    print(f"Nearest approach: {path.nearest_approach.position}")
+                    scene.add_geometry(create_path_geometry(path))
+                    scene.add_geometry(
+                        trimesh.PointCloud([path.nearest_approach.position.to_array()]),
+                    )
+                else:
+                    print(
+                        f"\nError: Path index {args.path} is out of range. "
+                        f"Must be between 0 and {len(acoustic_paths)-1}"
+                    )
+                    return
+            else:
+                # Show all paths
+                print(f"\nShowing all {len(acoustic_paths)} acoustic paths")
+                for path in acoustic_paths:
+                    scene.add_geometry(create_path_geometry(path))
+                    scene.add_geometry(
+                        trimesh.PointCloud([path.nearest_approach.position.to_array()]),
+                    )
 
-            scene.show()
-        else:
-            # Use standard visualization mode
-            scene = trimesh.Scene()
-            scene.add_geometry(room_mesh)
+        # Add zones
+        if "zones" in data:
+            for i, zone_data in enumerate(data["zones"]):
+                zone = Zone.from_dict(zone_data)
+                zone_geom = create_zone_geometry(zone)
+                scene.add_geometry(zone_geom, node_name=f"zone_{i}")
 
-            # Add all geometries
-            if points:
-                pc = create_point_cloud(points)
-                if pc:
-                    scene.add_geometry(pc)
-
-            for path in paths:
-                scene.add_geometry(create_path_geometry(path))
-
-            for path in acoustic_paths:
-                scene.add_geometry(create_path_geometry(path))
-                scene.add_geometry(
-                    trimesh.PointCloud([path.nearest_approach.position.to_array()]),
-                )
-
-            for i, zone in enumerate(zones):
-                scene.add_geometry(create_zone_geometry(zone), node_name=f"zone_{i}")
-
-            scene.show()
-    else:
-        # Just show the room mesh if no annotations
-        scene = trimesh.Scene()
-        scene.add_geometry(room_mesh)
-        scene.show()
+    scene.show()
 
 
 if __name__ == "__main__":
