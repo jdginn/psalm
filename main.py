@@ -127,6 +127,10 @@ def visualize_reflections(
             for i, zone in enumerate(zones):
                 scene.add_geometry(create_zone_geometry(zone), node_name=f"zone_{i}")
 
+        if not acoustic_paths:
+            scene.show(flags={"wireframe": True})
+            return
+
         # TODO:
         # Implement culling: for each AcousticPath, look at the location of the last reflection. Check if any others are within X distance.
         # If so, collect those in to a single "bucket" and only render the path with the highest gain from the bucket.
