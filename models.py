@@ -148,10 +148,30 @@ class Path:
 
 
 @dataclass
+class Reflection:
+    """A reflection point with position and normal direction."""
+
+    position: Point
+    normal: Vector
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "Reflection":
+        """Create Reflection from dictionary representation."""
+        return cls(
+            position=Point.from_dict(data["position"]),
+            normal=Vector.from_dict(data["normal"]),
+        )
+
+    def to_dict(self) -> dict:
+        """Convert Reflection to dictionary representation."""
+        return {"position": self.position.to_dict(), "normal": self.normal.to_dict()}
+
+
+@dataclass
 class AcousticPath:
     """A path representing acoustic ray reflections with associated properties."""
 
-    points: List[Point]
+    reflections: List[Reflection]
     shot: Shot
     gain: float  # stored in dB
     distance: float
@@ -164,7 +184,7 @@ class AcousticPath:
     def from_dict(cls, data: dict) -> "AcousticPath":
         """Create AcousticPath from dictionary representation."""
         return cls(
-            points=[Point.from_dict(p) for p in data["points"]],
+            reflections=[Reflection.from_dict(r) for r in data["reflections"]],
             shot=Shot.from_dict(data["shot"]),
             gain=data["gain"],
             distance=data["distance"],
@@ -177,7 +197,7 @@ class AcousticPath:
     def to_dict(self) -> dict:
         """Convert AcousticPath to dictionary representation."""
         result = {
-            "points": [p.to_dict() for p in self.points],
+            "reflections": [r.to_dict() for r in self.reflections],
             "shot": self.shot.to_dict(),
             "gain": self.gain,
             "distance": self.distance,

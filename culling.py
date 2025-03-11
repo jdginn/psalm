@@ -31,7 +31,7 @@ def cull_acoustic_paths(
             continue
 
         # Get the final reflection point
-        point1 = np.array(path1.points[-1].to_array())
+        point1 = np.array(path1.reflections[-1].position.to_array())
 
         # Create a new bucket for this path
         current_bucket = [path1]
@@ -43,7 +43,7 @@ def cull_acoustic_paths(
                 continue
 
             # Get the final reflection point of the comparison path
-            point2 = np.array(path2.points[-1].to_array())
+            point2 = np.array(path2.reflections[-1].position.to_array())
 
             # Calculate distance between final reflection points
             distance = np.linalg.norm(point1 - point2)

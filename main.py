@@ -30,9 +30,30 @@ def create_point_cloud(points: list[Point]) -> typing.Union[trimesh.PointCloud, 
     return trimesh.PointCloud(vertices=coords, colors=colors)
 
 
-def create_path_geometry(path: typing.Union[Path, AcousticPath]) -> trimesh.path.Path3D:
+def create_path_geometry(path: Path) -> trimesh.path.Path3D:
     """Create trimesh Path3D from Path or AcousticPath."""
     vertices = [p.to_array() for p in path.points]
+    if isinstance(path, AcousticPath):
+        vertices.append(path.nearest_approach.position.to_array())
+
+    # If no color specified, generate a random one
+    path_color = "#{:06x}".format(random.randint(0, 0xFFFFFF))
+
+    # Convert hex color to RGBA with 50% transparency
+    rgba = list(trimesh.visual.color.hex_to_rgba(path_color))
+    rgba[3] = 127  # Set alpha to 127 for 50% transparency
+
+    # Create a single entity for the whole path
+    entities = [trimesh.path.entities.Line(points=np.arange(len(vertices)), color=rgba)]
+
+    return trimesh.path.Path3D(entities=entities, vertices=vertices)
+
+
+def create_acoustic_path_geometry(
+    path: AcousticPath,
+) -> trimesh.path.Path3D:
+    """Create trimesh Path3D from Path or AcousticPath."""
+    vertices = [p.position.to_array() for p in path.reflections]
     if isinstance(path, AcousticPath):
         vertices.append(path.nearest_approach.position.to_array())
 
@@ -139,7 +160,7 @@ def visualize_reflections(
         # In non-step mode, add all acoustic paths
         if not step_mode:
             for path in acoustic_paths:
-                scene.add_geometry(create_path_geometry(path))
+                scene.add_geometry(create_acoustic_path_geometry(path))
                 scene.add_geometry(
                     trimesh.PointCloud(
                         [
@@ -151,7 +172,7 @@ def visualize_reflections(
         else:
             # Add only current acoustic path in step mode
             current_path = acoustic_paths[current_index]
-            scene.add_geometry(create_path_geometry(current_path))
+            scene.add_geometry(create_acoustic_path_geometry(current_path))
             scene.add_geometry(
                 trimesh.PointCloud(
                     [
