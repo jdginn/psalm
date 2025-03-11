@@ -61,13 +61,25 @@ A sequence of points with optional styling metadata.
 - `color` (string): Hex color code (default: "#0000FF")
 - `thickness` (number): Line thickness (default: 1.0)
 
+### Reflection
+
+Information about an acoustic reflection.
+
+**Required Fields:**
+
+- `position` (Point): Position of the reflection
+
+**Optional Fields:**
+
+- `normal` (Vector): Normal direction at the reflection
+
 ### AcousticPath
 
 A special type of path representing an acoustic reflection path.
 
 **Required Fields:**
 
-- `points` (array): Array of Point objects, starting with the shot origin (minimum 1 point)
+- `reflections` (array): Array of Reflection objects, starting with the shot origin (minimum 1 reflection)
 - `shot` (Shot): The shot that created this path
 - `gain` (number): Total gain in dB relative to direct signal
 - `distance` (number): Total distance traveled in meters
