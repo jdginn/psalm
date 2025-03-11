@@ -10,8 +10,8 @@ class Point:
     x: float
     y: float
     z: float
-    size: float = 1.0
     name: Optional[str] = None
+    color: str = "#000000"  # Default color
 
     @classmethod
     def from_dict(cls, data: dict) -> "Point":
@@ -20,8 +20,8 @@ class Point:
             x=data["x"],
             y=data["y"],
             z=data["z"],
-            size=data.get("size", 1.0),
             name=data.get("name"),
+            color=data.get("color", "#000000"),  # Default color
         )
 
     def to_array(self) -> List[float]:
@@ -31,10 +31,10 @@ class Point:
     def to_dict(self) -> dict:
         """Convert Point to dictionary representation."""
         result = {"x": self.x, "y": self.y, "z": self.z}
-        if self.size != 1.0:
-            result["size"] = self.size
         if self.name is not None:
             result["name"] = self.name
+        if self.color != "#000000":  # Default color check
+            result["color"] = self.color
         return result
 
 

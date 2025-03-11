@@ -26,7 +26,8 @@ def create_point_cloud(points: list[Point]) -> typing.Union[trimesh.PointCloud, 
     if not points:
         return None
     coords = [p.to_array() for p in points]
-    return trimesh.PointCloud(coords)
+    colors = [trimesh.visual.color.hex_to_rgba(p.color) for p in points]
+    return trimesh.PointCloud(vertices=coords, colors=colors)
 
 
 def create_path_geometry(path: typing.Union[Path, AcousticPath]) -> trimesh.path.Path3D:
