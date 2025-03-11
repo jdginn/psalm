@@ -37,10 +37,10 @@
         "x": { "type": "number" },
         "y": { "type": "number" },
         "z": { "type": "number" },
-        "size": {
-          "type": "number",
-          "minimum": 0,
-          "default": 1.0
+        "color": {
+          "type": "string",
+          "pattern": "^#[0-9A-Fa-f]{6}$",
+          "default": "#0000FF"
         },
         "name": {
           "type": ["string", "null"]

@@ -17,7 +17,7 @@ A point in 3D space with optional metadata.
 **Optional Fields:**
 
 - `size` (number): Point size, must be greater than 0 (default: 1.0)
-- `name` (string | null): Custom name for the point. If null or omitted, will be auto-generated as "Point(x,y,z)"
+- `color` (string): Hex color code (default: "#000000")
 
 ### Vector
 
