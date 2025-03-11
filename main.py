@@ -12,6 +12,7 @@ import multiprocessing
 from multiprocessing import Process, Queue
 from typing import Optional
 import trimesh.viewer
+import culling
 
 
 def load_json_data(file_path: str) -> dict:
@@ -101,6 +102,7 @@ def visualize_reflections(
     step_mode: bool = False,
 ) -> None:
     """Interactive visualization of acoustic reflections with additional geometries."""
+
     current_index = 0
     total_paths = len(acoustic_paths)
 
@@ -248,6 +250,12 @@ def main():
         help="Step through reflections one at a time",
         default=False,
     )
+    parser.add_argument(
+        "--cull",
+        type=float,
+        help="Cull very similar paths from the render",
+        default=0.0,
+    )
     args = parser.parse_args()
 
     scene = trimesh.Scene()
@@ -283,6 +291,9 @@ def main():
         # Add zones
         if "zones" in data:
             zones = [Zone.from_dict(p) for p in data["zones"]]
+
+    if args.cull > 0.0:
+        acoustic_paths = culling.cull_acoustic_paths(acoustic_paths, args.cull)
 
     visualize_reflections(room_mesh, acoustic_paths, points, paths, zones, args.step)
 
