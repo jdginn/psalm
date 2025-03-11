@@ -3,9 +3,15 @@ import json
 import trimesh
 import typing
 import random
+import math
 import time
 import numpy as np
 from models import Point, Path, AcousticPath, Zone
+import sys
+import multiprocessing
+from multiprocessing import Process, Queue
+from typing import Optional
+import trimesh.viewer
 
 
 def load_json_data(file_path: str) -> dict:
@@ -72,12 +78,6 @@ def create_zone_geometry(zone: Zone) -> trimesh.Trimesh:
     return sphere
 
 
-import multiprocessing
-from multiprocessing import Process, Queue
-from typing import Optional
-import trimesh.viewer
-
-
 def show_scene_and_wait(scene: trimesh.Scene, key_queue: Queue) -> None:
     """Helper function to show scene and capture key press in separate process."""
 
@@ -91,16 +91,6 @@ def show_scene_and_wait(scene: trimesh.Scene, key_queue: Queue) -> None:
 
     scene.show(flags={"wireframe": True})
 
-    # # Create viewer with custom callback
-    # viewer = trimesh.viewer.SceneViewer(
-    #     scene=scene,
-    #     callback=lambda s: key_callback(s, key_queue),
-    #     flags={"background": True},  # This prevents the viewer from blocking
-    # )
-    #
-    # # Start the viewer loop
-    # viewer.run()
-
 
 def visualize_reflections(
     room_mesh: trimesh.Trimesh,
@@ -108,12 +98,13 @@ def visualize_reflections(
     points: list[Point] = None,
     paths: list[Path] = None,
     zones: list[Zone] = None,
+    step_mode: bool = False,
 ) -> None:
     """Interactive visualization of acoustic reflections with additional geometries."""
     current_index = 0
     total_paths = len(acoustic_paths)
 
-    while 0 <= current_index < total_paths:
+    while True:
         # Create fresh scene for this reflection
         scene = trimesh.Scene()
 
@@ -134,39 +125,86 @@ def visualize_reflections(
             for i, zone in enumerate(zones):
                 scene.add_geometry(create_zone_geometry(zone), node_name=f"zone_{i}")
 
-        # Add current acoustic path
-        current_path = acoustic_paths[current_index]
-        scene.add_geometry(create_path_geometry(current_path))
-        scene.add_geometry(
-            trimesh.PointCloud([current_path.nearest_approach.position.to_array()]),
-        )
+        # TODO:
+        # Implement culling: for each AcousticPath, look at the location of the last reflection. Check if any others are within X distance.
+        # If so, collect those in to a single "bucket" and only render the path with the highest gain from the bucket.
 
-        print(f"\nViewing acoustic path {current_index + 1} of {total_paths}")
-        print("Press 'q' to advance to next path")
-        print("Press Ctrl+C to exit program")
+        # In non-step mode, add all acoustic paths
+        if not step_mode:
+            for path in acoustic_paths:
+                scene.add_geometry(create_path_geometry(path))
+                scene.add_geometry(
+                    trimesh.PointCloud(
+                        [
+                            path.nearest_approach.position.to_array(),
+                            path.shot.ray.origin.to_array(),
+                        ]
+                    ),
+                )
+        else:
+            # Add only current acoustic path in step mode
+            current_path = acoustic_paths[current_index]
+            scene.add_geometry(create_path_geometry(current_path))
+            scene.add_geometry(
+                trimesh.PointCloud(
+                    [
+                        current_path.nearest_approach.position.to_array(),
+                        current_path.shot.ray.origin.to_array(),
+                    ]
+                ),
+            )
+            print(f"\nViewing acoustic path {current_index + 1} of {total_paths}")
+            print("\n")
+
+            direct_dist = math.sqrt(
+                ((zones[0].x - current_path.shot.ray.origin.x) ** 2)
+                + ((zones[0].y - current_path.shot.ray.origin.y) ** 2)
+                + ((zones[0].z - current_path.shot.ray.origin.z) ** 2)
+            )
+
+            print(f"direct_dist:{direct_dist}")
+            print(f"path dist:{current_path.distance}")
+
+            itd = (current_path.distance - direct_dist) / 343 * 1000
+            print(f"ITD:{itd}ms")
+            print(f"gain:{current_path.gain}dB")
+            print(f"shot gain:{current_path.shot.gain}dB")
+            print("\n")
+            print("Press 'n' for next, 'p' for previous, 'q' to quit")
 
         try:
-            # # Create queue for key press communication
+            # Create queue for key press communication
             key_queue = Queue()
 
             # Create and start visualization process
             viz_process = Process(target=show_scene_and_wait, args=(scene, key_queue))
             viz_process.start()
 
-            # # Block until we receive 'q' in the queue
-            # key = key_queue.get()  # This blocks until a key is put in the queue
-            # print("unblocked")
+            # In non-step mode, only wait for 'q' to quit
+            if not step_mode:
+                while True:
+                    key = input().lower()
+                    if key == "q":
+                        if viz_process.is_alive():
+                            viz_process.terminate()
+                        viz_process.join()
+                        return
+                    else:
+                        print("Press 'q' to quit")
 
-            # Get keyboard input from main process
+            # In step mode, handle navigation
             while True:
                 key = input().lower()
                 if key == "n":
-                    current_index += 1
+                    current_index = (current_index + 1) % total_paths
                     break
                 elif key == "p":
-                    current_index = max(0, current_index - 1)
+                    current_index = (current_index - 1) % total_paths
                     break
                 elif key == "q":
+                    if viz_process.is_alive():
+                        viz_process.terminate()
+                    viz_process.join()
                     return
                 else:
                     print(
@@ -176,14 +214,8 @@ def visualize_reflections(
 
             # Clean up the visualization process
             if viz_process.is_alive():
-                print("Terminating visualization process")
                 viz_process.terminate()
-            print("Joining process")
             viz_process.join()
-
-            # Move to next path
-            if key == "n":
-                current_index += 1
 
         except KeyboardInterrupt:
             print("\nExiting program...")
@@ -199,8 +231,6 @@ def visualize_reflections(
                 viz_process.join()
             return
 
-    print("\nCompleted viewing all paths")
-
 
 def main():
     """Main function to visualize 3D mesh with annotations."""
@@ -212,6 +242,12 @@ def main():
         help="Annotations for the mesh (optional)",
         default=None,
     )
+    parser.add_argument(
+        "--step",
+        action="store_true",
+        help="Step through reflections one at a time",
+        default=False,
+    )
     args = parser.parse_args()
 
     scene = trimesh.Scene()
@@ -219,23 +255,18 @@ def main():
     room_mesh = trimesh.load(args.mesh)
     room_mesh.fix_normals()
     n_faces = len(room_mesh.faces)
-    print("Number of faces:", n_faces)
     face_colors = np.ones((n_faces, 4), dtype=np.uint8) * [255, 255, 255, 100]
     room_mesh.visual.face_colors = face_colors
 
-    # Verify the colors were set
-    print(f"Updated face colors shape: {room_mesh.visual.face_colors.shape}")
-    print(f"Sample of face colors: {room_mesh.visual.face_colors[0]}")
-
     scene.add_geometry(room_mesh)
+
+    points = []
+    paths = []
+    acoustic_paths = []
+    zones = []
 
     if args.annotations:
         data = load_json_data(args.annotations)
-
-        points = []
-        paths = []
-        acoustic_paths = []
-        zones = []
 
         # Handle standalone points
         if "points" in data:
@@ -253,9 +284,7 @@ def main():
         if "zones" in data:
             zones = [Zone.from_dict(p) for p in data["zones"]]
 
-    visualize_reflections(room_mesh, acoustic_paths, points, paths, zones)
-
-    scene.show()
+    visualize_reflections(room_mesh, acoustic_paths, points, paths, zones, args.step)
 
 
 if __name__ == "__main__":
