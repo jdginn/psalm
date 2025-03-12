@@ -44,8 +44,6 @@ def create_path_geometry(path: Path) -> trimesh.path.Path3D:
     # Create a single entity for the whole path
     entities = [trimesh.path.entities.Line(points=np.arange(len(vertices)), color=rgba)]
 
-    print(vertices)
-
     return trimesh.path.Path3D(entities=entities, vertices=vertices)
 
 
@@ -104,8 +102,6 @@ def create_normal_paths(reflections: List[Reflection], length: float) -> List[Pa
     normal_paths = []
     for reflection in reflections:
         start = reflection.position
-        print(f"Position:{reflection.position.to_array()}")
-        print(f"Normal:{reflection.normal.to_array()}")
         if (
             reflection.normal.x == 0
             and reflection.normal.y == 0
@@ -119,7 +115,6 @@ def create_normal_paths(reflections: List[Reflection], length: float) -> List[Pa
             z=reflection.position.z + reflection.normal.z * length,
             # color=PastelRed,
         )
-        print(f"New:{end.to_array()}")
         normal_paths.append(Path(points=[reflection.position, end]))
     return normal_paths
 
@@ -148,6 +143,7 @@ def visualize_reflections(
 ) -> None:
     """Interactive visualization of acoustic reflections with additional geometries."""
 
+    acoustic_paths.sort(key=lambda x: x.distance)
     current_index = 0
     total_paths = len(acoustic_paths)
 
@@ -357,6 +353,17 @@ def main():
 
     if args.cull > 0.0:
         acoustic_paths = culling.cull_acoustic_paths(acoustic_paths, args.cull)
+
+    # for acoustic_path in acoustic_paths:
+    #     acoustic_paths.sort(key=lambda x: x.distance)
+    #     direct_dist = math.sqrt(
+    #         ((zones[0].x - acoustic_path.shot.ray.origin.x) ** 2)
+    #         + ((zones[0].y - acoustic_path.shot.ray.origin.y) ** 2)
+    #         + ((zones[0].z - acoustic_path.shot.ray.origin.z) ** 2)
+    #     )
+    #
+    #     itd = (acoustic_path.distance - direct_dist) / 343 * 1000
+    #     print(f"dist: {acoustic_path.distance}m\t\t\tITD:{itd}ms")
 
     visualize_reflections(room_mesh, acoustic_paths, points, paths, zones, args.step)
 
