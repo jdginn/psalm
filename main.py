@@ -183,6 +183,57 @@ def visualize_reflections(
     scene.show(flags={"wireframe": True})
 
 
+def visualize_last_reflection_positions(
+    room_mesh: trimesh.Trimesh,
+    acoustic_paths: list[AcousticPath],
+    points: list[Point] = None,
+    paths: list[Path] = None,
+    zones: list[Zone] = None,
+) -> None:
+    """Interactive visualization of acoustic reflections with additional geometries."""
+
+    acoustic_paths.sort(key=lambda x: x.distance)
+    current_index = 0
+    total_paths = len(acoustic_paths)
+
+    # Create fresh scene for this reflection
+    scene = trimesh.Scene()
+
+    # Add room mesh
+    scene.add_geometry(room_mesh)
+
+    # Add static geometries
+    if points:
+        pc = create_point_cloud(points)
+        if pc:
+            scene.add_geometry(pc)
+
+    if paths:
+        for path in paths:
+            scene.add_geometry(create_path_geometry(path))
+
+    if zones:
+        for i, zone in enumerate(zones):
+            scene.add_geometry(create_zone_geometry(zone), node_name=f"zone_{i}")
+
+    if not acoustic_paths:
+        scene.show(flags={"wireframe": True})
+        return
+
+    for path in acoustic_paths:
+        scene.add_geometry(
+            trimesh.PointCloud(
+                vertices=[
+                    path.reflections[-1].position.to_array(),
+                ],
+                colors=[
+                    [255, 0, 0, 255],
+                ],
+            )
+        )
+    scene.show(flags={"wireframe": True})
+
+
 def visualize_reflections_step(
     room_mesh: trimesh.Trimesh,
     acoustic_paths: list[AcousticPath],
@@ -339,6 +390,12 @@ def main():
         help="Cull very similar paths from the render",
         default=0.0,
     )
+    parser.add_argument(
+        "--points",
+        action="store_true",
+        help="Show the location of the final reflection in each arrival",
+        default=False,
+    )
     args = parser.parse_args()
 
     scene = trimesh.Scene()
@@ -378,10 +435,15 @@ def main():
     if args.cull > 0.0:
         acoustic_paths = culling.cull_acoustic_paths(acoustic_paths, args.cull)
 
+    if args.points:
+        visualize_last_reflection_positions(
+            room_mesh, acoustic_paths, points, paths, zones
+        )
+        return
     if args.step:
         visualize_reflections_step(room_mesh, acoustic_paths, points, paths, zones)
-    else:
-        visualize_reflections(room_mesh, acoustic_paths, points, paths, zones)
+        return
+    visualize_reflections(room_mesh, acoustic_paths, points, paths, zones)
 
 
 if __name__ == "__main__":
