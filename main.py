@@ -6,11 +6,11 @@ import random
 import math
 import time
 import numpy as np
-from models import Point, Path, AcousticPath, Zone
+from models import Point, Path, AcousticPath, Zone, Reflection
 import sys
 import multiprocessing
 from multiprocessing import Process, Queue
-from typing import Optional
+from typing import Optional, List
 import trimesh.viewer
 import culling
 
@@ -33,8 +33,6 @@ def create_point_cloud(points: list[Point]) -> typing.Union[trimesh.PointCloud, 
 def create_path_geometry(path: Path) -> trimesh.path.Path3D:
     """Create trimesh Path3D from Path or AcousticPath."""
     vertices = [p.to_array() for p in path.points]
-    if isinstance(path, AcousticPath):
-        vertices.append(path.nearest_approach.position.to_array())
 
     # If no color specified, generate a random one
     path_color = "#{:06x}".format(random.randint(0, 0xFFFFFF))
@@ -46,6 +44,8 @@ def create_path_geometry(path: Path) -> trimesh.path.Path3D:
     # Create a single entity for the whole path
     entities = [trimesh.path.entities.Line(points=np.arange(len(vertices)), color=rgba)]
 
+    print(vertices)
+
     return trimesh.path.Path3D(entities=entities, vertices=vertices)
 
 
@@ -54,8 +54,7 @@ def create_acoustic_path_geometry(
 ) -> trimesh.path.Path3D:
     """Create trimesh Path3D from Path or AcousticPath."""
     vertices = [p.position.to_array() for p in path.reflections]
-    if isinstance(path, AcousticPath):
-        vertices.append(path.nearest_approach.position.to_array())
+    vertices.append(path.nearest_approach.position.to_array())
 
     # If no color specified, generate a random one
     path_color = "#{:06x}".format(random.randint(0, 0xFFFFFF))
@@ -99,6 +98,30 @@ def create_zone_geometry(zone: Zone) -> trimesh.Trimesh:
     sphere.visual.face_colors = rgba
 
     return sphere
+
+
+def create_normal_paths(reflections: List[Reflection], length: float) -> List[Path]:
+    normal_paths = []
+    for reflection in reflections:
+        start = reflection.position
+        print(f"Position:{reflection.position.to_array()}")
+        print(f"Normal:{reflection.normal.to_array()}")
+        if (
+            reflection.normal.x == 0
+            and reflection.normal.y == 0
+            and reflection.normal.z == 0
+        ):
+            print("No normal")
+            continue
+        end = Point(
+            x=reflection.position.x + reflection.normal.x * length,
+            y=reflection.position.y + reflection.normal.y * length,
+            z=reflection.position.z + reflection.normal.z * length,
+            # color=PastelRed,
+        )
+        print(f"New:{end.to_array()}")
+        normal_paths.append(Path(points=[reflection.position, end]))
+    return normal_paths
 
 
 def show_scene_and_wait(scene: trimesh.Scene, key_queue: Queue) -> None:
@@ -153,10 +176,6 @@ def visualize_reflections(
             scene.show(flags={"wireframe": True})
             return
 
-        # TODO:
-        # Implement culling: for each AcousticPath, look at the location of the last reflection. Check if any others are within X distance.
-        # If so, collect those in to a single "bucket" and only render the path with the highest gain from the bucket.
-
         # In non-step mode, add all acoustic paths
         if not step_mode:
             for path in acoustic_paths:
@@ -181,6 +200,24 @@ def visualize_reflections(
                     ]
                 ),
             )
+
+            scene.add_geometry(
+                [
+                    create_path_geometry(p)
+                    for p in create_normal_paths(current_path.reflections, 0.4)
+                ]
+            )
+
+            # for reflection in current_path.reflections:
+            #     p1 = reflection.position
+            #     p2 = Point(
+            #         x=reflection.position.x + 10 * reflection.normal.x,
+            #         y=reflection.position.y + 10 * reflection.normal.y,
+            #         z=reflection.position.z + 10 * reflection.normal.z,
+            #     )
+            #     print(f"p1:{p1} p2:{p2}\n")
+            #     scene.add_geometry(create_path_geometry(Path([p1, p2])))
+
             print(f"\nViewing acoustic path {current_index + 1} of {total_paths}")
             print("\n")
 
