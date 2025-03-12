@@ -139,7 +139,56 @@ def visualize_reflections(
     points: list[Point] = None,
     paths: list[Path] = None,
     zones: list[Zone] = None,
-    step_mode: bool = False,
+) -> None:
+    """Interactive visualization of acoustic reflections with additional geometries."""
+
+    acoustic_paths.sort(key=lambda x: x.distance)
+    current_index = 0
+    total_paths = len(acoustic_paths)
+
+    # Create fresh scene for this reflection
+    scene = trimesh.Scene()
+
+    # Add room mesh
+    scene.add_geometry(room_mesh)
+
+    # Add static geometries
+    if points:
+        pc = create_point_cloud(points)
+        if pc:
+            scene.add_geometry(pc)
+
+    if paths:
+        for path in paths:
+            scene.add_geometry(create_path_geometry(path))
+
+    if zones:
+        for i, zone in enumerate(zones):
+            scene.add_geometry(create_zone_geometry(zone), node_name=f"zone_{i}")
+
+    if not acoustic_paths:
+        scene.show(flags={"wireframe": True})
+        return
+
+    for path in acoustic_paths:
+        scene.add_geometry(create_acoustic_path_geometry(path))
+        scene.add_geometry(
+            trimesh.PointCloud(
+                [
+                    path.nearest_approach.position.to_array(),
+                    path.shot.ray.origin.to_array(),
+                ]
+            ),
+        )
+    scene.show(flags={"wireframe": True})
+
+
+def visualize_reflections_step(
+    room_mesh: trimesh.Trimesh,
+    acoustic_paths: list[AcousticPath],
+    points: list[Point] = None,
+    paths: list[Path] = None,
+    zones: list[Zone] = None,
 ) -> None:
     """Interactive visualization of acoustic reflections with additional geometries."""
 
@@ -172,66 +221,53 @@ def visualize_reflections(
             scene.show(flags={"wireframe": True})
             return
 
-        # In non-step mode, add all acoustic paths
-        if not step_mode:
-            for path in acoustic_paths:
-                scene.add_geometry(create_acoustic_path_geometry(path))
-                scene.add_geometry(
-                    trimesh.PointCloud(
-                        [
-                            path.nearest_approach.position.to_array(),
-                            path.shot.ray.origin.to_array(),
-                        ]
-                    ),
-                )
-        else:
-            # Add only current acoustic path in step mode
-            current_path = acoustic_paths[current_index]
-            scene.add_geometry(create_acoustic_path_geometry(current_path))
-            scene.add_geometry(
-                trimesh.PointCloud(
-                    [
-                        current_path.nearest_approach.position.to_array(),
-                        current_path.shot.ray.origin.to_array(),
-                    ]
-                ),
-            )
-
-            scene.add_geometry(
+        # Add only current acoustic path in step mode
+        current_path = acoustic_paths[current_index]
+        scene.add_geometry(create_acoustic_path_geometry(current_path))
+        scene.add_geometry(
+            trimesh.PointCloud(
                 [
-                    create_path_geometry(p)
-                    for p in create_normal_paths(current_path.reflections, 0.4)
+                    current_path.nearest_approach.position.to_array(),
+                    current_path.shot.ray.origin.to_array(),
                 ]
-            )
+            ),
+        )
 
-            # for reflection in current_path.reflections:
-            #     p1 = reflection.position
-            #     p2 = Point(
-            #         x=reflection.position.x + 10 * reflection.normal.x,
-            #         y=reflection.position.y + 10 * reflection.normal.y,
-            #         z=reflection.position.z + 10 * reflection.normal.z,
-            #     )
-            #     print(f"p1:{p1} p2:{p2}\n")
-            #     scene.add_geometry(create_path_geometry(Path([p1, p2])))
+        scene.add_geometry(
+            [
+                create_path_geometry(p)
+                for p in create_normal_paths(current_path.reflections, 0.4)
+            ]
+        )
 
-            print(f"\nViewing acoustic path {current_index + 1} of {total_paths}")
-            print("\n")
+        # for reflection in current_path.reflections:
+        #     p1 = reflection.position
+        #     p2 = Point(
+        #         x=reflection.position.x + 10 * reflection.normal.x,
+        #         y=reflection.position.y + 10 * reflection.normal.y,
+        #         z=reflection.position.z + 10 * reflection.normal.z,
+        #     )
+        #     print(f"p1:{p1} p2:{p2}\n")
+        #     scene.add_geometry(create_path_geometry(Path([p1, p2])))
 
-            direct_dist = math.sqrt(
-                ((zones[0].x - current_path.shot.ray.origin.x) ** 2)
-                + ((zones[0].y - current_path.shot.ray.origin.y) ** 2)
-                + ((zones[0].z - current_path.shot.ray.origin.z) ** 2)
-            )
+        print(f"\nViewing acoustic path {current_index + 1} of {total_paths}")
+        print("\n")
 
-            print(f"direct_dist:{direct_dist}")
-            print(f"path dist:{current_path.distance}")
+        direct_dist = math.sqrt(
+            ((zones[0].x - current_path.shot.ray.origin.x) ** 2)
+            + ((zones[0].y - current_path.shot.ray.origin.y) ** 2)
+            + ((zones[0].z - current_path.shot.ray.origin.z) ** 2)
+        )
 
-            itd = (current_path.distance - direct_dist) / 343 * 1000
-            print(f"ITD:{itd}ms")
-            print(f"gain:{current_path.gain}dB")
-            print(f"shot gain:{current_path.shot.gain}dB")
-            print("\n")
-            print("Press 'n' for next, 'p' for previous, 'q' to quit")
+        print(f"direct_dist:{direct_dist}")
+        print(f"path dist:{current_path.distance}")
+
+        itd = (current_path.distance - direct_dist) / 343 * 1000
+        print(f"ITD:{itd}ms")
+        print(f"gain:{current_path.gain}dB")
+        print(f"shot gain:{current_path.shot.gain}dB")
+        print("\n")
+        print("Press 'n' for next, 'p' for previous, 'q' to quit")
 
         try:
             # Create queue for key press communication
@@ -240,18 +276,6 @@ def visualize_reflections(
             # Create and start visualization process
             viz_process = Process(target=show_scene_and_wait, args=(scene, key_queue))
             viz_process.start()
-
-            # In non-step mode, only wait for 'q' to quit
-            if not step_mode:
-                while True:
-                    key = input().lower()
-                    if key == "q":
-                        if viz_process.is_alive():
-                            viz_process.terminate()
-                        viz_process.join()
-                        return
-                    else:
-                        print("Press 'q' to quit")
 
             # In step mode, handle navigation
             while True:
@@ -354,18 +378,10 @@ def main():
     if args.cull > 0.0:
         acoustic_paths = culling.cull_acoustic_paths(acoustic_paths, args.cull)
 
-    # for acoustic_path in acoustic_paths:
-    #     acoustic_paths.sort(key=lambda x: x.distance)
-    #     direct_dist = math.sqrt(
-    #         ((zones[0].x - acoustic_path.shot.ray.origin.x) ** 2)
-    #         + ((zones[0].y - acoustic_path.shot.ray.origin.y) ** 2)
-    #         + ((zones[0].z - acoustic_path.shot.ray.origin.z) ** 2)
-    #     )
-    #
-    #     itd = (acoustic_path.distance - direct_dist) / 343 * 1000
-    #     print(f"dist: {acoustic_path.distance}m\t\t\tITD:{itd}ms")
-
-    visualize_reflections(room_mesh, acoustic_paths, points, paths, zones, args.step)
+    if args.step:
+        visualize_reflections_step(room_mesh, acoustic_paths, points, paths, zones)
+    else:
+        visualize_reflections(room_mesh, acoustic_paths, points, paths, zones)
 
 
 if __name__ == "__main__":
