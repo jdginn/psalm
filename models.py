@@ -148,23 +148,73 @@ class Path:
 
 
 @dataclass
+class Material:
+    """Information about a material that can absorb or reflect sound."""
+
+    absorption: float  # between 0 and 1.0
+
+    def __post_init__(self):
+        if not 0 <= self.absorption <= 1:
+            raise ValueError("absorption must be between 0 and 1")
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "Material":
+        """Create Material from dictionary representation."""
+        return cls(absorption=data["absorption"])
+
+    def to_dict(self) -> dict:
+        """Convert Material to dictionary representation."""
+        return {"absorption": self.absorption}
+
+
+@dataclass
+class Surface:
+    """Information about a surface that can absorb or reflect sound."""
+
+    material: Material
+    name: Optional[str] = None
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "Surface":
+        """Create Surface from dictionary representation."""
+        return cls(
+            material=Material.from_dict(data["material"]),
+            name=data.get("name"),
+        )
+
+    def to_dict(self) -> dict:
+        """Convert Surface to dictionary representation."""
+        result = {"material": self.material.to_dict()}
+        if self.name is not None:
+            result["name"] = self.name
+        return result
+
+
+@dataclass
 class Reflection:
     """A reflection point with position and normal direction."""
 
     position: Point
-    normal: Vector
+    normal: Optional[Vector] = None
+    surface: Optional[Surface] = None
 
     @classmethod
     def from_dict(cls, data: dict) -> "Reflection":
         """Create Reflection from dictionary representation."""
         return cls(
             position=Point.from_dict(data["position"]),
-            normal=Vector.from_dict(data["normal"]),
+            normal=Vector.from_dict(data["normal"]) if "normal" in data else None,
+            surface=Surface.from_dict(data["surface"]) if "surface" in data else None,
         )
 
     def to_dict(self) -> dict:
         """Convert Reflection to dictionary representation."""
-        return {"position": self.position.to_dict(), "normal": self.normal.to_dict()}
+        result = {"position": self.position.to_dict()}
+        if self.normal is not None:
+            result["normal"] = self.normal.to_dict()
+        if self.surface is not None:
+            result["surface"] = self.surface.to_dict()
+        return result
 
 
 @dataclass
