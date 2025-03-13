@@ -75,7 +75,7 @@ Information about a surface that can absorb or reflect sound.
 
 **Required Fields:**
 
-- `material` (array): Material of this surface
+- `material` (Material): Material of this surface
 
 **Optional Fields:**
 
@@ -216,11 +216,9 @@ Example:
           "position": { "x": 2.0, "y": 3.0, "z": 1.5 },
           "normal": { "x": -0.707, "y": 0.707, "z": 0.0 },
           "surface": {
-            "material": [
-              {
-                "absorption": 0.3
-              }
-            ],
+            "material": {
+              "absorption": 0.3
+            },
             "name": "Wall Surface"
           }
         },
@@ -228,11 +226,9 @@ Example:
           "position": { "x": 4.0, "y": 3.0, "z": 1.5 },
           "normal": { "x": 0.0, "y": -1.0, "z": 0.0 },
           "surface": {
-            "material": [
-              {
-                "absorption": 0.5
-              }
-            ]
+            "material": {
+              "absorption": 0.5
+            }
           }
         }
       ],
