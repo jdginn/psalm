@@ -37,10 +37,15 @@
         "x": { "type": "number" },
         "y": { "type": "number" },
         "z": { "type": "number" },
+        "size": {
+          "type": "number",
+          "minimum": 0,
+          "default": 1.0
+        },
         "color": {
           "type": "string",
           "pattern": "^#[0-9A-Fa-f]{6}$",
-          "default": "#0000FF"
+          "default": "#000000"
         },
         "name": {
           "type": ["string", "null"]
@@ -56,12 +61,37 @@
         "z": { "type": "number" }
       }
     },
+    "Material": {
+      "type": "object",
+      "required": ["absorption"],
+      "properties": {
+        "absorption": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      }
+    },
+    "Surface": {
+      "type": "object",
+      "required": ["material"],
+      "properties": {
+        "material": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/Material" }
+        },
+        "name": {
+          "type": ["string", "null"]
+        }
+      }
+    },
     "Reflection": {
       "type": "object",
-      "required": ["position", "normal"],
+      "required": ["position"],
       "properties": {
         "position": { "$ref": "#/definitions/Point" },
-        "normal": { "$ref": "#/definitions/Vector" }
+        "normal": { "$ref": "#/definitions/Vector" },
+        "surface": { "$ref": "#/definitions/Surface" }
       }
     },
     "Ray": {

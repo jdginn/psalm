@@ -61,6 +61,26 @@ A sequence of points with optional styling metadata.
 - `color` (string): Hex color code (default: "#0000FF")
 - `thickness` (number): Line thickness (default: 1.0)
 
+### Material
+
+Information about a material that can absorb or reflect sound.
+
+**Required Fields:**
+
+- `absorption` (float): Absorption coefficient of the material (should be between 0 and 1.0) where 0 is no absorption and 1.0 is complete absorption.
+
+### Surface
+
+Information about a surface that can absorb or reflect sound.
+
+**Required Fields:**
+
+- `material` (array): Material of this surface
+
+**Optional Fields:**
+
+- `name` (string | null): Name of thes urface
+
 ### Reflection
 
 Information about an acoustic reflection.
@@ -72,6 +92,7 @@ Information about an acoustic reflection.
 **Optional Fields:**
 
 - `normal` (Vector): Normal direction at the reflection
+- `surface` (Surface): Surface that the reflection occurred on
 
 ### AcousticPath
 
@@ -163,22 +184,57 @@ Example:
 
 ```json
 {
-  "points": [{ "x": 0.0, "y": 0.0, "z": 0.0, "name": "Origin" }],
+  "points": [
+    {
+      "x": 0.0,
+      "y": 0.0,
+      "z": 0.0,
+      "name": "Origin",
+      "size": 1.0,
+      "color": "#000000"
+    }
+  ],
   "paths": [
     {
       "points": [
         { "x": 0.0, "y": 0.0, "z": 0.0 },
         { "x": 1.0, "y": 1.0, "z": 1.0 }
       ],
-      "color": "#0000FF"
+      "name": "Simple Path",
+      "color": "#0000FF",
+      "thickness": 1.0
     }
   ],
   "acousticPaths": [
     {
-      "points": [
-        { "x": 0.0, "y": 0.0, "z": 1.5 },
-        { "x": 2.0, "y": 3.0, "z": 1.5 },
-        { "x": 4.0, "y": 3.0, "z": 1.5 }
+      "reflections": [
+        {
+          "position": { "x": 0.0, "y": 0.0, "z": 1.5 },
+          "normal": { "x": 0.0, "y": 0.0, "z": 1.0 }
+        },
+        {
+          "position": { "x": 2.0, "y": 3.0, "z": 1.5 },
+          "normal": { "x": -0.707, "y": 0.707, "z": 0.0 },
+          "surface": {
+            "material": [
+              {
+                "absorption": 0.3
+              }
+            ],
+            "name": "Wall Surface"
+          }
+        },
+        {
+          "position": { "x": 4.0, "y": 3.0, "z": 1.5 },
+          "normal": { "x": 0.0, "y": -1.0, "z": 0.0 },
+          "surface": {
+            "material": [
+              {
+                "absorption": 0.5
+              }
+            ]
+          }
+        }
       ],
       "shot": {
         "ray": {
@@ -193,6 +249,7 @@ Example:
         "position": { "x": 3.0, "y": 3.0, "z": 1.5 },
         "distance": 0.8
       },
+      "name": "Example Acoustic Path",
       "color": "#FF0000",
       "thickness": 0.5
     }
