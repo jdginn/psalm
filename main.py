@@ -119,6 +119,22 @@ def create_normal_paths(reflections: List[Reflection], length: float) -> List[Pa
     return normal_paths
 
 
+def filter_floor_bounce(
+    acoustic_paths: list[AcousticPath], floor_names: list[str]
+) -> list[AcousticPath]:
+    """Filter out paths that bounce directly off the floor."""
+    paths = []
+
+    for path in acoustic_paths:
+        if (
+            len(path.reflections) == 2
+            and path.reflections[1].surface.name in floor_names
+        ):
+            continue
+        paths.append(path)
+    return paths
+
+
 def show_scene_and_wait(scene: trimesh.Scene, key_queue: Queue) -> None:
     """Helper function to show scene and capture key press in separate process."""
 
@@ -305,9 +321,27 @@ def visualize_reflections_step(
         print("\n")
 
         direct_dist = math.sqrt(
-            ((zones[0].x - current_path.shot.ray.origin.x) ** 2)
-            + ((zones[0].y - current_path.shot.ray.origin.y) ** 2)
-            + ((zones[0].z - current_path.shot.ray.origin.z) ** 2)
+            (
+                (
+                    current_path.nearest_approach.position.x
+                    - current_path.shot.ray.origin.x
+                )
+                ** 2
+            )
+            + (
+                (
+                    current_path.nearest_approach.position.y
+                    - current_path.shot.ray.origin.y
+                )
+                ** 2
+            )
+            + (
+                (
+                    current_path.nearest_approach.position.z
+                    - current_path.shot.ray.origin.z
+                )
+                ** 2
+            )
         )
 
         print(f"direct_dist:{direct_dist}")
@@ -317,6 +351,8 @@ def visualize_reflections_step(
         print(f"ITD:{itd}ms")
         print(f"gain:{current_path.gain}dB")
         print(f"shot gain:{current_path.shot.gain}dB")
+        print(f"{len(current_path.reflections)} reflections")
+        print(f"last reflection from {current_path.reflections[-1].surface.name}")
         print("\n")
         print("Press 'n' for next, 'p' for previous, 'q' to quit")
 
@@ -431,6 +467,8 @@ def main():
         # Add zones
         if "zones" in data:
             zones = [Zone.from_dict(p) for p in data["zones"]]
+
+    acoustic_paths = filter_floor_bounce(acoustic_paths, ["Floor"])
 
     if args.cull > 0.0:
         acoustic_paths = culling.cull_acoustic_paths(acoustic_paths, args.cull)
