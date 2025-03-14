@@ -26,7 +26,81 @@ class ValidityChecker:
         self.program_path = Path(program_path)
 
         # Template as a string - exactly as specified
-        self.template = """listening_triangle:
+        self.template = """
+input:
+  mesh:
+    path: "/Users/justinginn/repos/go-recording-studio/testdata/without_walls.3mf"
+
+materials:
+  from_file: "/Users/justinginn/repos/go-recording-studio/testdata/materials.yaml"
+
+surface_assignments:
+  inline:
+    default: "brick"
+    Floor: "wood"
+    Front A: "gypsum"
+    Front B: "gypsum"
+    Back Diffuser: "diffuser"
+    Ceiling Absorber: "rockwool_24cm"
+    Secondary Ceiling Absorber L: "rockwool_24cm"
+    Secondary Ceiling Absorber R: "rockwool_24cm"
+    Street Absorber: "rockwool_24cm"
+    Front Hall Absorber: "rockwool_24cm"
+    Back Hall Absorber: "rockwool_24cm"
+    Cutout Top: "rockwool_24cm"
+    Door: "rockwool_12cm"
+    L Speaker Gap: "rockwool_24cm"
+    R Speaker Gap: "rockwool_24cm"
+    Window A: "glass"
+    Window B: "glass"
+    left speaker wall: "gypsum"
+    right speaker wall: "gypsum"
+
+speaker:
+  model: "MUM8"
+  dimensions:
+    x: 0.38
+    y: 0.256
+    z: 0.52
+  offset:
+    y: 0.096
+    z: 0.412
+  directivity:
+    horizontal:
+      0: 0
+      30: -1
+      40: -3
+      50: -3
+      60: -4
+      70: -6
+      80: -9
+      90: -12
+      120: -13
+      150: -20
+      180: -30
+    vertical:
+      0: 0
+      30: 0
+      60: -4
+      70: -7
+      80: -9
+      100: -9
+      120: -9
+      150: -15
+
+simulation:
+  rfz_radius: 0.5
+  shot_count: 10000
+  shot_angle_range: 180
+  order: 10
+  gain_threshold_db: -15
+  time_threshold_ms: 100
+
+flags:
+  skip_speaker_in_room_check: false
+  skip_add_speaker_wall: false
+
+listening_triangle:
   distance_from_front: {distance_from_front}
   distance_from_center: {distance_from_center}
   source_height: {source_height}
@@ -70,6 +144,14 @@ class ValidityChecker:
                 check=False,  # Don't raise on non-zero exit
             )
 
+            # Print program output
+            if result.stdout:
+                print("Program stdout:", result.stdout)
+            if result.stderr:
+                print("Program stderr:", result.stderr)
+
+            print(f"Exit code: {result.returncode}")
+
             # Clean up the temporary file
             temp_yaml.unlink()
 
@@ -93,35 +175,18 @@ class ValidityChecker:
             print(f"Error cleaning up temporary directory: {e}")
 
 
-# Example usage
-if __name__ == "__main__":
-    # Example parameters
-    params = {
-        "distance_from_front": 0.516,
-        "distance_from_center": 1.352,
-        "source_height": 1.7,
-        "listen_height": 1.4,
-    }
-
-    checker = ValidityChecker(program_path="path/to/program")
-
-    result = checker.check(params)
-    print(f"Validity check result: {result}")
-
-
 class ValidityLearner:
-    def __init__(self, bounds, validity_checker_func):
+    def __init__(self, bounds, checker):
         """
         Initialize the validity learner with parameter bounds and validity checker.
 
         Args:
             bounds: Dictionary of parameter bounds like:
                    {'distance_from_front': (min, max), ...}
-            validity_checker_func: Function that takes a dictionary of parameters
-                                 and returns validity score
+            checker: ValidityChecker instance
         """
         self.bounds = bounds
-        self.check_validity_impl = validity_checker_func
+        self.checker = checker
 
         # Known trends about parameter impacts on validity
         self.parameter_trends = {
@@ -141,7 +206,7 @@ class ValidityLearner:
         self.samples_X = []
         self.validity_y = []
 
-        print(f"ValidityLearner initialized at {datetime.datetime.utcnow()}")
+        print(f"ValidityLearner initialized at {datetime.datetime.now(datetime.UTC)}")
 
     def check_validity(self, params):
         """
@@ -153,11 +218,14 @@ class ValidityLearner:
             Validity score from the checker
         """
         if isinstance(params, np.ndarray):
-            params_dict = {name: params[i] for i, name in enumerate(self.bounds.keys())}
+            params_dict = {
+                name: float(params[i])  # Convert to float to ensure yaml compatibility
+                for i, name in enumerate(self.bounds.keys())
+            }
         else:
-            params_dict = params
+            params_dict = {k: float(v) for k, v in params.items()}
 
-        return self.check_validity_impl(params_dict)
+        return self.checker.check(params_dict)
 
     def _generate_biased_samples(self, n_samples):
         """
@@ -349,40 +417,51 @@ class ValidityLearner:
         return valid_array[selected_indices]
 
 
-# Example usage
 if __name__ == "__main__":
-    # Example validity checker function
-    def example_validity_checker(params):
-        """
-        Example validity checker - replace with your actual checker
-        Returns positive number for valid configurations, negative for invalid
-        """
-        return 1.0  # Replace with actual validity checking logic
+    # Get the program path from command line argument
+    if len(sys.argv) != 2:
+        print("Usage: python validity_learner.py <path_to_check_program>")
+        sys.exit(1)
 
-    checker = ValidityChecker(program_path=sys.argv[1])
+    program_path = Path(sys.argv[1])
+    if not program_path.exists():
+        print(f"Error: Program not found at {program_path}")
+        sys.exit(1)
 
     # Example bounds
-    example_bounds = {
+    bounds = {
         "distance_from_front": (0, 5.0),
         "distance_from_center": (0, 3.0),
         "source_height": (0, 2.5),
         "listen_height": (0, 2.0),
     }
 
-    # Create learner
-    learner = ValidityLearner(example_bounds, example_validity_checker)
+    # Create checker and learner
+    checker = ValidityChecker(program_path=program_path)
+    learner = ValidityLearner(bounds, checker)
 
-    # Learn validity boundary
-    learner.learn_validity_boundary(
-        initial_samples=2000, n_rounds=15, samples_per_round=1000
-    )
+    # Test a single point first
+    test_params = {
+        "distance_from_front": 0.516,
+        "distance_from_center": 1.352,
+        "source_height": 1.7,
+        "listen_height": 1.4,
+    }
 
-    # Get starting points for optimization
-    starting_points = learner.suggest_optimization_starting_points(n_points=15)
+    print("Testing single point...")
+    result = learner.check_validity(test_params)
+    print(f"Test result: {result}")
 
-    # Example of how to use with optimization
-    def constrained_acoustic_objective(params):
-        """Example objective function for optimization"""
-        if not learner.predict_validity(params):
-            return float("inf")
-        return 0.0  # Replace with actual acoustic simulation
+    if input("Continue with learning? (y/n): ").lower().strip() == "y":
+        # Learn validity boundary
+        learner.learn_validity_boundary(
+            initial_samples=100,  # Starting with fewer samples for testing
+            n_rounds=5,
+            samples_per_round=50,
+        )
+
+        # Get starting points for optimization
+        starting_points = learner.suggest_optimization_starting_points(n_points=5)
+        print("\nSuggested starting points:")
+        for point in starting_points:
+            print(point)
