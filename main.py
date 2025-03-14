@@ -4,6 +4,7 @@ import trimesh
 import typing
 import random
 import math
+import os.path
 import time
 import numpy as np
 from models import Point, Path, AcousticPath, Zone, Reflection
@@ -407,13 +408,7 @@ def visualize_reflections_step(
 def main():
     """Main function to visualize 3D mesh with annotations."""
     parser = argparse.ArgumentParser()
-    parser.add_argument("mesh", help="Path to the mesh file")
-    parser.add_argument(
-        "--annotations",
-        type=str,
-        help="Annotations for the mesh (optional)",
-        default=None,
-    )
+    parser.add_argument("path", help="Path to the experiment")
     parser.add_argument(
         "--step",
         action="store_true",
@@ -436,7 +431,7 @@ def main():
 
     scene = trimesh.Scene()
 
-    room_mesh = trimesh.load(args.mesh)
+    room_mesh = trimesh.load(os.path.join(args.path, "room.stl"))
     room_mesh.fix_normals()
     n_faces = len(room_mesh.faces)
     face_colors = np.ones((n_faces, 4), dtype=np.uint8) * [255, 255, 255, 100]
@@ -449,8 +444,8 @@ def main():
     acoustic_paths = []
     zones = []
 
-    if args.annotations:
-        data = load_json_data(args.annotations)
+    if os.path.exists(os.path.join(args.path, "annotations.json")):
+        data = load_json_data(os.path.join(args.path, "annotations.json"))
 
         # Handle standalone points
         if "points" in data:
