@@ -6,8 +6,9 @@ Created: 2025-03-14 by jdginn
 import numpy as np
 from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.preprocessing import StandardScaler
-import datetime
+from datetime import datetime, UTC
 import sys
+import joblib
 
 import yaml
 import subprocess
@@ -101,6 +102,8 @@ flags:
   skip_add_speaker_wall: false
 
 listening_triangle:
+  reference_position: [0, 2.37, 0.0]
+  reference_normal: [1, 0, 0]
   distance_from_front: {distance_from_front}
   distance_from_center: {distance_from_center}
   source_height: {source_height}
@@ -206,7 +209,9 @@ class ValidityLearner:
         self.samples_X = []
         self.validity_y = []
 
-        print(f"ValidityLearner initialized at {datetime.datetime.now(datetime.UTC)}")
+        # print(
+        #     f"ValidityLearner initialized at {datetime.datetime.now(datetime.timezone.utc)}"
+        # )
 
     def check_validity(self, params):
         """
@@ -319,7 +324,7 @@ class ValidityLearner:
             n_rounds: Number of refinement rounds
             samples_per_round: Number of samples per refinement round
         """
-        print(f"Starting validity learning at {datetime.datetime.utcnow()}")
+        print(f"Starting validity learning at {datetime.utcnow()}")
 
         # Initial sampling biased by known trends
         initial_points = self._generate_biased_samples(initial_samples)
@@ -416,6 +421,76 @@ class ValidityLearner:
 
         return valid_array[selected_indices]
 
+    def save_model(self, output_dir: str = "validity_models") -> Path:
+        """
+        Save the trained model and associated data
+
+        Args:
+            output_dir: Directory to save the model
+
+        Returns:
+            Path to the saved model file
+        """
+        # Create output directory if it doesn't exist
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        # Create model data dictionary
+        model_data = {
+            "model": self.model,
+            "scaler": self.scaler,
+            "bounds": self.bounds,
+            "parameter_trends": self.parameter_trends,
+            "valid_points": self.valid_points,
+            "invalid_points": self.invalid_points,
+            "metadata": {
+                "created_at": datetime.now(UTC).isoformat(),
+                "created_by": "jdginn",
+                "n_valid_points": len(self.valid_points),
+                "n_invalid_points": len(self.invalid_points),
+            },
+        }
+
+        # Create filename with timestamp
+        filename = (
+            f"validity_model_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}.joblib"
+        )
+        model_path = output_dir / filename
+
+        # Save the model
+        joblib.dump(model_data, model_path)
+        print(f"Saved model to {model_path}")
+        return model_path
+
+    @classmethod
+    def load_model(cls, model_path: Path, checker):
+        """
+        Load a saved model
+
+        Args:
+            model_path: Path to the saved model file
+            checker: ValidityChecker instance to use with the loaded model
+
+        Returns:
+            ValidityLearner instance with loaded model
+        """
+        model_data = joblib.load(model_path)
+
+        # Create new instance
+        learner = cls(model_data["bounds"], checker)
+
+        # Load saved attributes
+        learner.model = model_data["model"]
+        learner.scaler = model_data["scaler"]
+        learner.parameter_trends = model_data["parameter_trends"]
+        learner.valid_points = model_data["valid_points"]
+        learner.invalid_points = model_data["invalid_points"]
+
+        print(f"Loaded model from {model_path}")
+        print(f"Model metadata: {model_data['metadata']}")
+
+        return learner
+
 
 if __name__ == "__main__":
     # Get the program path from command line argument
@@ -430,10 +505,10 @@ if __name__ == "__main__":
 
     # Example bounds
     bounds = {
-        "distance_from_front": (0, 5.0),
+        "distance_from_front": (0, 0.8),
         "distance_from_center": (0, 3.0),
-        "source_height": (0, 2.5),
-        "listen_height": (0, 2.0),
+        "source_height": (0, 2.2),
+        "listen_height": (1.0, 1.6),
     }
 
     # Create checker and learner
@@ -465,3 +540,18 @@ if __name__ == "__main__":
         print("\nSuggested starting points:")
         for point in starting_points:
             print(point)
+            # Save the model
+        if input("\nSave model? (y/n): ").lower().strip() == "y":
+            model_path = learner.save_model()
+            print(f"\nModel saved to: {model_path}")
+
+            # Example of loading the model
+            print("\nTesting model loading...")
+            loaded_learner = ValidityLearner.load_model(model_path, checker)
+
+            # Verify loaded model works
+            test_point = starting_points[0]
+            original_prediction = learner.predict_validity(test_point)
+            loaded_prediction = loaded_learner.predict_validity(test_point)
+            print(f"Original model prediction: {original_prediction}")
+            print(f"Loaded model prediction: {loaded_prediction}")
