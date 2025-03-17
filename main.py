@@ -7,7 +7,7 @@ import math
 import os.path
 import time
 import numpy as np
-from models import Point, Path, AcousticPath, Zone, Reflection
+from models import Point, Path, AcousticPath, Zone, Reflection, SummaryResults
 import sys
 import multiprocessing
 from multiprocessing import Process, Queue
@@ -443,6 +443,10 @@ def main():
     paths = []
     acoustic_paths = []
     zones = []
+
+    if os.path.exists(os.path.join(args.path, "summary.json")):
+        data = load_json_data(os.path.join(args.path, "summary.json"))
+        results = SummaryResults.from_dict(data)
 
     if os.path.exists(os.path.join(args.path, "annotations.json")):
         data = load_json_data(os.path.join(args.path, "annotations.json"))

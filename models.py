@@ -329,3 +329,88 @@ def serialize_scene(
         result["zones"] = [z.to_dict() for z in zones]
 
     return result
+
+
+@dataclass
+class AnalysisResults:
+    """Analysis results for binaural analysis."""
+
+    ITD: float
+    ITD_2: Optional[float] = None
+    avg_gain_5ms: Optional[float] = None
+    listen_pos_dist: Optional[float] = None
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "AnalysisResults":
+        """Create AnalysisResults from dictionary representation."""
+        return cls(
+            ITD=data["ITD"],
+            ITD_2=data.get("ITD_2"),
+            avg_gain_5ms=data.get("avg_gain_5ms"),
+            listen_pos_dist=data.get("listen_pos_dist"),
+        )
+
+    def to_dict(self) -> dict:
+        """Convert AnalysisResults to dictionary representation."""
+        result = {"ITD": self.ITD}
+        if self.ITD_2 is not None:
+            result["ITD_2"] = self.ITD_2
+        if self.avg_gain_5ms is not None:
+            result["avg_gain_5ms"] = self.avg_gain_5ms
+        if self.listen_pos_dist is not None:
+            result["listen_pos_dist"] = self.listen_pos_dist
+        return result
+
+
+@dataclass
+class SummaryResults:
+    """Binaural analysis results including validation errors and status."""
+
+    status: str
+    validation_errors: Optional[List[str]] = None
+    results: Optional[AnalysisResults] = None
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "SummaryResults":
+        """Create BinauralAnalysisResults from dictionary representation."""
+        return cls(
+            status=data["status"],
+            validation_errors=data.get("validation_errors"),
+            results=AnalysisResults.from_dict(data["results"]),
+        )
+
+    def to_dict(self) -> dict:
+        """Convert BinauralAnalysisResults to dictionary representation."""
+        result = {
+            "status": self.status,
+            "results": self.results.to_dict(),
+        }
+        if self.validation_errors is not None:
+            result["validation_errors"] = self.validation_errors
+        return result
+
+
+def serialize_analysis_results(results: SummaryResults) -> dict:
+    """
+    Serialize binaural analysis results to a dictionary following the schema specification.
+
+    Args:
+        results: BinauralAnalysisResults object
+
+    Returns:
+        Dictionary representation of the analysis results
+    """
+    return results.to_dict()
+
+
+def deserialize_analysis_results(data: dict) -> SummaryResults:
+    """
+    Deserialize binaural analysis results from a dictionary following the schema specification.
+
+    Args:
+        data: Dictionary representation of the analysis results
+
+    Returns:
+        BinauralAnalysisResults object
+    """
+    return SummaryResults.from_dict(data)
