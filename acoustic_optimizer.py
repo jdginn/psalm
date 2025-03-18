@@ -17,188 +17,13 @@ from concurrent.futures import ThreadPoolExecutor
 import logging
 import sys
 
-
-class AcousticSimulator:
-    def __init__(self, program_path: Path, timeout: int = 30):
-        """
-        Wrapper for acoustic simulation program
-
-        Args:
-            program_path: Path to simulator executable
-            timeout: Maximum seconds to wait for simulation
-        """
-        self.program_path = Path(program_path)
-        self.timeout = timeout
-        self.results_history: List[Dict] = []
-
-        # Setup logging
-        self.logger = logging.getLogger("AcousticSimulator")
-        self.logger.setLevel(logging.INFO)
-
-    def run_simulation(self, params: Dict[str, float]) -> Tuple[float, bool]:
-        """
-        Run single acoustic simulation
-
-        Args:
-            params: Dictionary of parameter values
-
-        Returns:
-            (score, success) tuple
-        """
-        start_time = datetime.now(timezone.utc)
-
-        print("params: ", params)
-
-        # Create YAML config (similar to validity checker)
-        config_str = f"""
-input:
-  mesh:
-    path: "/Users/justinginn/repos/go-recording-studio/testdata/without_walls.3mf"
-
-materials:
-  from_file: "/Users/justinginn/repos/go-recording-studio/testdata/materials.yaml"
-
-surface_assignments:
-  inline:
-    default: "brick"
-    Floor: "wood"
-    Front A: "gypsum"
-    Front B: "gypsum"
-    Back Diffuser: "diffuser"
-    Ceiling Absorber: "rockwool_24cm"
-    Secondary Ceiling Absorber L: "rockwool_24cm"
-    Secondary Ceiling Absorber R: "rockwool_24cm"
-    Street Absorber: "rockwool_24cm"
-    Front Hall Absorber: "rockwool_24cm"
-    Back Hall Absorber: "rockwool_24cm"
-    Cutout Top: "rockwool_24cm"
-    Door: "rockwool_12cm"
-    L Speaker Gap: "rockwool_24cm"
-    R Speaker Gap: "rockwool_24cm"
-    Window A: "glass"
-    Window B: "glass"
-    left speaker wall: "gypsum"
-    right speaker wall: "gypsum"
-
-speaker:
-  model: "MUM8"
-  dimensions:
-    x: 0.38
-    y: 0.256
-    z: 0.52
-  offset:
-    y: 0.096
-    z: 0.412
-  directivity:
-    horizontal:
-      0: 0
-      30: -1
-      40: -3
-      50: -3
-      60: -4
-      70: -6
-      80: -9
-      90: -12
-      120: -13
-      150: -20
-      180: -30
-    vertical:
-      0: 0
-      30: 0
-      60: -4
-      70: -7
-      80: -9
-      100: -9
-      120: -9
-      150: -15
-
-simulation:
-  rfz_radius: 0.5
-  shot_count: 10000
-  shot_angle_range: 180
-  order: 10
-  gain_threshold_db: -15
-  time_threshold_ms: 100
-
-flags:
-  skip_speaker_in_room_check: false
-  skip_add_speaker_wall: false
-
-listening_triangle:
-  reference_position: [0, 2.37, 0.0]
-  reference_normal: [1, 0, 0]
-  distance_from_front: {params['distance_from_front']}
-  distance_from_center: {params['distance_from_center']}
-  source_height: {params['source_height']}
-  listen_height: {params['listen_height']}
-"""
-
-        # Create temporary config file
-        temp_config = Path(
-            f"temp_config_{datetime.now(timezone.utc).strftime('%H%M%S_%f')}.yaml"
-        )
-        temp_config.write_text(config_str)
-
-        try:
-            # Run simulation
-            result = subprocess.run(
-                [str(self.program_path), str(temp_config)],
-                capture_output=True,
-                text=True,
-                timeout=self.timeout,
-            )
-            # Print program output
-            if result.stdout:
-                print("Program stdout:", result.stdout)
-            if result.stderr:
-                print("Program stderr:", result.stderr)
-
-            success = result.returncode == 0
-            if success:
-                try:
-                    score = float(result.stdout.strip())
-                except ValueError:
-                    self.logger.error(
-                        f"Could not parse output as float: {result.stdout}"
-                    )
-                    score = 0.0
-                    success = False
-            else:
-                score = 0.0
-
-            # Record result
-            self.results_history.append(
-                {
-                    "params": params,
-                    "score": score,
-                    "success": success,
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                    "duration": (
-                        datetime.now(timezone.utc) - start_time
-                    ).total_seconds(),
-                }
-            )
-
-            return score, success
-
-        except subprocess.TimeoutExpired:
-            self.logger.error(f"Simulation timed out after {self.timeout}s")
-            return 0.0, False
-
-        except Exception as e:
-            self.logger.error(f"Simulation failed: {e}")
-            return 0.0, False
-
-        finally:
-            # Cleanup
-            if temp_config.exists():
-                temp_config.unlink()
+from simulation_runner import SimulationRunner
 
 
 class AcousticOptimizer:
     def __init__(
         self,
-        simulator: AcousticSimulator,
+        simulator: SimulationRunner,
         validity_model_path: Path,
         output_dir: Path,
         n_parallel: int = 4,
@@ -409,14 +234,15 @@ if __name__ == "__main__":
     setup_logging()
     logger = logging.getLogger(__name__)
 
-    if len(sys.argv) != 3:
+    if len(sys.argv) != 4:
         print(
-            "Usage: python acoustic_optimizer.py <simulator_path> <validity_model_path>"
+            "Usage: python acoustic_optimizer.py <simulator_path> <config_path> <validity_model_path>"
         )
         sys.exit(1)
 
     simulator_path = Path(sys.argv[1])
-    validity_model_path = Path(sys.argv[2])
+    config_path = Path(sys.argv[2])
+    validity_model_path = Path(sys.argv[3])
 
     # Verify paths exist
     if not simulator_path.exists():
@@ -427,7 +253,7 @@ if __name__ == "__main__":
         sys.exit(1)
 
     # Setup optimization
-    simulator = AcousticSimulator(simulator_path)
+    simulator = SimulationRunner(Path("."), simulator_path, config_path)
     optimizer = AcousticOptimizer(
         simulator=simulator,
         validity_model_path=validity_model_path,

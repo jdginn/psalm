@@ -127,11 +127,11 @@ def filter_floor_bounce(
     paths = []
 
     for path in acoustic_paths:
-        if (
-            len(path.reflections) == 2
-            and path.reflections[1].surface.name in floor_names
-        ):
-            continue
+        # if (
+        #     len(path.reflections) == 2
+        #     and path.reflections[1].surface.name in floor_names
+        # ):
+        # continue
         paths.append(path)
     return paths
 
