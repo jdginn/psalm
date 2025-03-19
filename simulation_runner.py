@@ -3,6 +3,7 @@ from typing import Dict, Optional
 import logging
 from pathlib import Path
 import json
+import yaml
 import subprocess
 from typing import Tuple
 
@@ -115,8 +116,8 @@ class SimulationRunner:
         ]
         spec.listening_triangle.source_height = parameters["source_height"]
         spec_file = exp_dir / "config.yaml"
-        with open(spec_file, "w") as f:
-            json.dump(spec, f, indent=2)
+
+        config.save_to_file(spec, str(spec_file))
 
         return {"config": spec_file}
 
@@ -130,7 +131,7 @@ class SimulationRunner:
 
         # Run simulation
         result = subprocess.run(
-            [str(self.program_path), "config.yaml", exp_dir],
+            [str(self.program_path), input_files["config"], exp_dir],
             capture_output=True,
             text=True,
             timeout=self.timeout,

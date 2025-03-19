@@ -15,181 +15,22 @@ import subprocess
 from pathlib import Path
 import tempfile
 
-
-class ValidityChecker:
-    def __init__(self, program_path):
-        """
-        Initialize the validity checker
-
-        Args:
-            program_path: Path to the external program to run
-        """
-        self.program_path = Path(program_path)
-
-        # Template as a string - exactly as specified
-        self.template = """
-input:
-  mesh:
-    path: "/Users/justinginn/repos/go-recording-studio/testdata/without_walls.3mf"
-
-materials:
-  from_file: "/Users/justinginn/repos/go-recording-studio/testdata/materials.yaml"
-
-surface_assignments:
-  inline:
-    default: "brick"
-    Floor: "wood"
-    Front A: "gypsum"
-    Front B: "gypsum"
-    Back Diffuser: "diffuser"
-    Ceiling Absorber: "rockwool_24cm"
-    Secondary Ceiling Absorber L: "rockwool_24cm"
-    Secondary Ceiling Absorber R: "rockwool_24cm"
-    Street Absorber: "rockwool_24cm"
-    Front Hall Absorber: "rockwool_24cm"
-    Back Hall Absorber: "rockwool_24cm"
-    Cutout Top: "rockwool_24cm"
-    Door: "rockwool_12cm"
-    L Speaker Gap: "rockwool_24cm"
-    R Speaker Gap: "rockwool_24cm"
-    Window A: "glass"
-    Window B: "glass"
-    left speaker wall: "gypsum"
-    right speaker wall: "gypsum"
-
-speaker:
-  model: "MUM8"
-  dimensions:
-    x: 0.38
-    y: 0.256
-    z: 0.52
-  offset:
-    y: 0.096
-    z: 0.412
-  directivity:
-    horizontal:
-      0: 0
-      30: -1
-      40: -3
-      50: -3
-      60: -4
-      70: -6
-      80: -9
-      90: -12
-      120: -13
-      150: -20
-      180: -30
-    vertical:
-      0: 0
-      30: 0
-      60: -4
-      70: -7
-      80: -9
-      100: -9
-      120: -9
-      150: -15
-
-simulation:
-  rfz_radius: 0.5
-  shot_count: 10000
-  shot_angle_range: 180
-  order: 10
-  gain_threshold_db: -15
-  time_threshold_ms: 100
-
-flags:
-  skip_speaker_in_room_check: false
-  skip_add_speaker_wall: false
-
-listening_triangle:
-  reference_position: [0, 2.37, 0.0]
-  reference_normal: [1, 0, 0]
-  distance_from_front: {distance_from_front}
-  distance_from_center: {distance_from_center}
-  source_height: {source_height}
-  listen_height: {listen_height}
-"""
-        # Create a temporary directory for our YAML files
-        self.temp_dir = Path(tempfile.mkdtemp())
-        print(f"Using temporary directory: {self.temp_dir}")
-
-    def check(self, params):
-        """
-        Check validity of parameters by running external program
-
-        Args:
-            params: Dictionary containing:
-                   - distance_from_front
-                   - distance_from_center
-                   - source_height
-                   - listen_height
-        Returns:
-            1.0 if valid (program exits 0)
-            -1.0 if invalid (program exits non-zero)
-        """
-        # Format the template with the provided parameters
-        config_str = self.template.format(**params)
-
-        # Create a temporary YAML file
-        temp_yaml = (
-            self.temp_dir
-            / f"config_{params['distance_from_front']}_{params['distance_from_center']}_{params['source_height']}_{params['listen_height']}.yaml"
-        )
-        with open(temp_yaml, "w") as f:
-            f.write(config_str)
-
-        try:
-            # Run the external program
-            result = subprocess.run(
-                [str(self.program_path), str(temp_yaml)],
-                capture_output=True,
-                text=True,
-                check=False,  # Don't raise on non-zero exit
-            )
-
-            # Print program output
-            if result.stdout:
-                print("Program stdout:", result.stdout)
-            if result.stderr:
-                print("Program stderr:", result.stderr)
-
-            print(f"Exit code: {result.returncode}")
-
-            # Clean up the temporary file
-            temp_yaml.unlink()
-
-            # Return based on exit code
-            return 1.0 if result.returncode == 0 else -1.0
-
-        except Exception as e:
-            print(f"Error running validity check: {e}")
-            # Clean up the temporary file
-            if temp_yaml.exists():
-                temp_yaml.unlink()
-            return -1.0
-
-    def __del__(self):
-        """Cleanup temporary directory when the checker is destroyed"""
-        try:
-            import shutil
-
-            shutil.rmtree(self.temp_dir)
-        except Exception as e:
-            print(f"Error cleaning up temporary directory: {e}")
+from simulation_runner import SimulationRunner
+from name_generator import generate_experiment_id
 
 
 class ValidityLearner:
-    def __init__(self, bounds, checker):
+    def __init__(self, bounds, simulator):
         """
         Initialize the validity learner with parameter bounds and validity checker.
 
         Args:
             bounds: Dictionary of parameter bounds like:
                    {'distance_from_front': (min, max), ...}
-            checker: ValidityChecker instance
+            simluator: SimulationRunner instance
         """
         self.bounds = bounds
-        self.checker = checker
+        self.simulator = simulator
 
         # Known trends about parameter impacts on validity
         self.parameter_trends = {
@@ -222,15 +63,15 @@ class ValidityLearner:
         Returns:
             Validity score from the checker
         """
-        if isinstance(params, np.ndarray):
-            params_dict = {
-                name: float(params[i])  # Convert to float to ensure yaml compatibility
-                for i, name in enumerate(self.bounds.keys())
-            }
-        else:
-            params_dict = {k: float(v) for k, v in params.items()}
 
-        return self.checker.check(params_dict)
+        name = generate_experiment_id()
+
+        results, ok = self.simulator.run_simulation(name, params)
+        if not ok:
+            return -1.0
+        if results["status"] != "success":
+            return -1.0
+        return 1.0
 
     def _generate_biased_samples(self, n_samples):
         """
@@ -494,11 +335,13 @@ class ValidityLearner:
 
 if __name__ == "__main__":
     # Get the program path from command line argument
-    if len(sys.argv) != 2:
-        print("Usage: python validity_learner.py <path_to_check_program>")
+    if len(sys.argv) != 4:
+        print("Usage: python validity_learner.py <path_to_check_program> <path_to_save_results> <path_to_base_config_file>")
         sys.exit(1)
 
     program_path = Path(sys.argv[1])
+    base_directory = Path(sys.argv[2])
+    config_path = Path(sys.argv[3])
     if not program_path.exists():
         print(f"Error: Program not found at {program_path}")
         sys.exit(1)
@@ -512,8 +355,8 @@ if __name__ == "__main__":
     }
 
     # Create checker and learner
-    checker = ValidityChecker(program_path=program_path)
-    learner = ValidityLearner(bounds, checker)
+    simulator = SimulationRunner(program_path=program_path, base_directory=base_directory, config_path=config_path)
+    learner = ValidityLearner(bounds, simulator)
 
     # Test a single point first
     test_params = {

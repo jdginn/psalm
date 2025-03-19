@@ -4,5 +4,5 @@ networkx
 lxml
 scipy
 pydantic
-botorch
-gpytorch
+scikit-learn
+PyYAML

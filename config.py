@@ -107,6 +107,11 @@ class CeilingPanels:
     center: Optional[CeilingPanelCenter] = None
     sides: Optional[CeilingPanelSides] = None
 
+@dataclass
+class WallAbsorbers:
+    thickness: float
+    heights: Dict[str, float] = field(default_factory=dict)
+
 
 @dataclass
 class Input:
@@ -128,11 +133,93 @@ class ExperimentConfig:
     input: Input = field(default_factory=Input)
     materials: Materials = field(default_factory=Materials)
     surface_assignments: SurfaceAssignments = field(default_factory=SurfaceAssignments)
-    speaker: Speaker = None
+    speaker: Optional[Speaker] = None
     listening_triangle: ListeningTriangle = field(default_factory=ListeningTriangle)
-    simulation: Simulation = None
+    simulation: Optional[Simulation] = None
     flags: Flags = field(default_factory=Flags)
     ceiling_panels: CeilingPanels = field(default_factory=CeilingPanels)
+    wall_absorbers: Optional[WallAbsorbers] = None
+
+    @classmethod
+    def from_dict(cls, data: dict) -> 'ExperimentConfig':
+        """Creates an ExperimentConfig instance from a dictionary with proper nested object creation."""
+        # Handle nested objects
+        if 'metadata' in data:
+            data['metadata'] = Metadata(**data['metadata'])
+        
+        if 'input' in data:
+            input_data = data['input']
+            if isinstance(input_data, dict):
+                mesh = Input.Mesh()
+                if 'mesh' in input_data:
+                    mesh.path = input_data['mesh'].get('path', '')
+                data['input'] = Input(mesh=mesh)
+
+        if 'materials' in data:
+            materials_data = data['materials']
+            if isinstance(materials_data, dict):
+                inline_materials = {}
+                if 'inline' in materials_data:
+                    for name, mat_data in materials_data['inline'].items():
+                        inline_materials[name] = Material(**mat_data)
+                data['materials'] = Materials(
+                    inline=inline_materials,
+                    from_file=materials_data.get('from_file', '')
+                )
+
+        if 'surface_assignments' in data:
+            data['surface_assignments'] = SurfaceAssignments(**data['surface_assignments'])
+
+        if 'speaker' in data and data['speaker'] is not None:
+            speaker_data = data['speaker']
+            dimensions = SpeakerDimensions(**speaker_data['dimensions'])
+            offset = SpeakerOffset(**speaker_data['offset'])
+            directivity = Directivity(**speaker_data['directivity'])
+            data['speaker'] = Speaker(
+                model=speaker_data['model'],
+                dimensions=dimensions,
+                offset=offset,
+                directivity=directivity
+            )
+
+        if 'listening_triangle' in data:
+            data['listening_triangle'] = ListeningTriangle(**data['listening_triangle'])
+
+        if 'simulation' in data and data['simulation'] is not None:
+            data['simulation'] = Simulation(**data['simulation'])
+
+        if 'flags' in data:
+            data['flags'] = Flags(**data['flags'])
+
+        if 'ceiling_panels' in data:
+            ceiling_data = data['ceiling_panels']
+            center = None
+            sides = None
+            if 'center' in ceiling_data:
+                center = CeilingPanelCenter(**ceiling_data['center'])
+            if 'sides' in ceiling_data:
+                sides = CeilingPanelSides(**ceiling_data['sides'])
+            data['ceiling_panels'] = CeilingPanels(center=center, sides=sides)
+
+        if 'wall_absorbers' in data and data['wall_absorbers'] is not None:
+            data['wall_absorbers'] = WallAbsorbers(**data['wall_absorbers'])
+
+        return cls(**data)
+
+def load_from_file(path: str) -> ExperimentConfig:
+    """Loads an ExperimentConfig from a YAML file."""
+    try:
+        with open(path, "r") as f:
+            data = yaml.safe_load(f)
+    except Exception as e:
+        raise RuntimeError(f"Error reading config file: {str(e)}")
+
+    try:
+        config = ExperimentConfig.from_dict(data)
+    except Exception as e:
+        raise RuntimeError(f"Error parsing config file: {str(e)}")
+
+    return config
 
 
 class PathResolver:
@@ -160,22 +247,6 @@ class LoadOptions:
     merge_files: bool = False
 
 
-def load_from_file(path: str) -> ExperimentConfig:
-    """Loads an ExperimentConfig from a YAML file."""
-
-    try:
-        with open(path, "r") as f:
-            data = f.read()
-    except Exception as e:
-        raise RuntimeError(f"Error reading config file: {str(e)}")
-
-    try:
-        config_dict = yaml.safe_load(data)
-        config = ExperimentConfig(**config_dict)
-    except Exception as e:
-        raise RuntimeError(f"Error parsing config file: {str(e)}")
-
-    return config
 
 
 def save_to_file(config: ExperimentConfig, path: str) -> None:
