@@ -17,6 +17,12 @@ from concurrent.futures import ThreadPoolExecutor
 import logging
 import sys
 
+# Add scikit-optimize imports
+from skopt import Optimizer
+from skopt.space import Real
+from skopt.utils import use_named_args
+
+
 from simulation_runner import SimulationRunner
 from name_generator import generate_experiment_id
 
@@ -52,6 +58,23 @@ class AcousticOptimizer:
         self.scaler = model_data["scaler"]
         self.bounds = model_data["bounds"]
 
+        # Setup Bayesian optimization
+        self.space = [
+            Real(low, high, name=param)
+            for param, (low, high) in self.bounds.items()
+        ]
+        self.param_names = list(self.bounds.keys())
+        
+        # Initialize Bayesian optimizer with custom base estimator
+        self.optimizer = Optimizer(
+            dimensions=self.space,
+            base_estimator="GP",  # Gaussian Process
+            acq_func="EI",       # Expected Improvement
+            acq_optimizer="auto",
+            n_initial_points=10,  # Number of random points before using surrogate model
+            random_state=42
+        )
+
         # Setup results tracking
         self.results: List[Dict] = []
         self.best_score = float("-inf")
@@ -68,23 +91,26 @@ class AcousticOptimizer:
         return self.validity_model.predict_proba(point_scaled)[0][1]
 
     def generate_exploration_points(self, n_points: int) -> List[Dict[str, float]]:
-        """Generate diverse points predicted to be valid"""
+        """Generate points using Bayesian optimization strategy"""
         points = []
         attempts = 0
         max_attempts = n_points * 10
 
         while len(points) < n_points and attempts < max_attempts:
-            # Generate random point
-            params = {
-                param: np.random.uniform(low, high)
-                for param, (low, high) in self.bounds.items()
-            }
+            # Ask the optimizer for a batch of points
+            candidate_points = self.optimizer.ask(n_points=min(n_points - len(points), self.n_parallel))
+            
+            for point in candidate_points:
+                # Convert to dictionary
+                params = dict(zip(self.param_names, point))
+                
+                # Check validity
+                if self.predict_validity(params) >= self.validity_threshold:
+                    points.append(params)
 
-            # Check validity
-            if self.predict_validity(params) >= self.validity_threshold:
-                points.append(params)
-
-            attempts += 1
+                attempts += 1
+                if len(points) >= n_points:
+                    break
 
         return points
 
@@ -99,44 +125,51 @@ class AcousticOptimizer:
         start_time = datetime.now(timezone.utc)
         self.logger.info(f"Starting optimization with {n_iterations} iterations")
 
-        # Generate initial points
-        points_to_evaluate = self.generate_exploration_points(n_iterations)
-        self.logger.info(
-            f"Generated {len(points_to_evaluate)} valid points to evaluate"
-        )
+        for iteration in range(0, n_iterations, self.n_parallel):
+            # Generate batch of points
+            batch_size = min(self.n_parallel, n_iterations - iteration)
+            points_to_evaluate = self.generate_exploration_points(batch_size)
+            
+            # Run simulations in parallel
+            with ThreadPoolExecutor(max_workers=self.n_parallel) as executor:
+                futures = []
+                for params in points_to_evaluate:
+                    futures.append(
+                        executor.submit(
+                            self.simulator.run_simulation,
+                            generate_experiment_id(),
+                            params
+                        )
+                    )
 
-        # Run simulations in parallel
-        with ThreadPoolExecutor(max_workers=self.n_parallel) as executor:
-            futures = []
-            for params in points_to_evaluate:
-                futures.append(executor.submit(self.simulator.run_simulation, generate_experiment_id(), params))
+                # Process results as they complete
+                for i, future in enumerate(futures):
+                    simulation_result, success = future.result()
+                    score = 0.0
+                    if simulation_result["status"] == "success":
+                        score = simulation_result["results"]["ITD"]
 
-            # Process results as they complete
-            for i, future in enumerate(futures):
-                simulation_result, success = future.result()
-                print(f"simulation_result: {simulation_result}")
-                score = 0.0
-                if simulation_result["status"] == "success":
-                    score = simulation_result["results"]["ITD"]
+                    # Tell the optimizer about the result
+                    point = [points_to_evaluate[i][param] for param in self.param_names]
+                    self.optimizer.tell(point, -score)  # Negative because we're maximizing
 
+                    store_result = {
+                        "params": points_to_evaluate[i],
+                        "score": score,
+                        "success": success,
+                        "iteration": iteration + i,
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                    }
 
-                store_result = {
-                    "params": points_to_evaluate[i],
-                    "score": score,
-                    "success": success,
-                    "iteration": i,
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                }
+                    self.results.append(store_result)
 
-                self.results.append(store_result)
+                    if score > self.best_score:
+                        self.best_score = score
+                        self.best_params = points_to_evaluate[i]
+                        self.logger.info(f"New best score: {score}")
 
-                if score > self.best_score:
-                    self.best_score = score
-                    self.best_params = points_to_evaluate[i]
-                    self.logger.info(f"New best score: {simulation_result}")
-
-                if plot_progress and (i + 1) % 10 == 0:
-                    self.plot_progress()
+                    if plot_progress and (iteration + i + 1) % 10 == 0:
+                        self.plot_progress()
 
         # Final results
         duration = (datetime.now(timezone.utc) - start_time).total_seconds()
@@ -236,4 +269,4 @@ if __name__ == "__main__":
     )
 
     # Run optimization
-    optimizer.optimize(n_iterations=100, plot_progress=True)
+    optimizer.optimize(n_iterations=1000, plot_progress=True)
