@@ -66,7 +66,7 @@ class ValidityLearner:
 
         name = generate_experiment_id()
 
-        results, ok = self.simulator.run_simulation(name, params)
+        name, results, ok = self.simulator.run_simulation(name, params)
         if not ok:
             return -1.0
         if results["status"] == "validation_error":
@@ -386,9 +386,9 @@ if __name__ == "__main__":
 
     # Learn validity boundary
     learner.learn_validity_boundary(
-        initial_samples=10,  # Starting with fewer samples for testing
-        n_rounds=2,
-        samples_per_round=50,
+        initial_samples=100,  # Starting with fewer samples for testing
+        n_rounds=10,
+        samples_per_round=100,
     )
 
     # Get starting points for optimization

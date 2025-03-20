@@ -35,6 +35,7 @@ class AcousticOptimizer:
         output_dir: Path,
         n_parallel: int = 4,
         validity_threshold: float = 0.8,
+        additional_params: Dict[str, Tuple[float, float]] = None
     ):
         """
         Acoustic parameter optimizer
@@ -45,6 +46,7 @@ class AcousticOptimizer:
             output_dir: Directory for saving results
             n_parallel: Number of parallel simulations
             validity_threshold: Minimum validity prediction confidence
+            additional_params: Parameters that were not in the validity training but should be included in this training
         """
         self.simulator = simulator
         self.output_dir = Path(output_dir)
@@ -64,6 +66,15 @@ class AcousticOptimizer:
             for param, (low, high) in self.bounds.items()
         ]
         self.param_names = list(self.bounds.keys())
+
+        # Add additional parameters to the optimization space that were not in the validity training
+        self.additional_params = additional_params or {}
+        additional_space = [
+            Real(low, high, name=param)
+            for param, (low, high) in self.additional_params.items()
+        ]
+        self.space.extend(additional_space)
+        self.param_names.extend(self.additional_params.keys())
         
         # Initialize Bayesian optimizer with custom base estimator
         self.optimizer = Optimizer(
@@ -79,6 +90,7 @@ class AcousticOptimizer:
         self.results: List[Dict] = []
         self.best_score = float("-inf")
         self.best_params = None
+        self.best_experiment_name = ""
 
         # Setup logging
         self.logger = logging.getLogger("AcousticOptimizer")
@@ -94,7 +106,7 @@ class AcousticOptimizer:
         """Generate points using Bayesian optimization strategy"""
         points = []
         attempts = 0
-        max_attempts = n_points * 10
+        max_attempts = n_points * 1000
 
         while len(points) < n_points and attempts < max_attempts:
             # Ask the optimizer for a batch of points
@@ -144,10 +156,13 @@ class AcousticOptimizer:
 
                 # Process results as they complete
                 for i, future in enumerate(futures):
-                    simulation_result, success = future.result()
-                    score = 0.0
-                    if simulation_result["status"] == "success":
-                        score = simulation_result["results"]["ITD"]
+                    print("failed experiment")
+                    name, simulation_result, success = future.result()
+                    if simulation_result["status"] != "success":
+                        print(f"Experiment failed")
+                        continue
+                    score = simulation_result["results"]["ITD"]
+                    print(f"Experiment score: {score}")
 
                     # Tell the optimizer about the result
                     point = [points_to_evaluate[i][param] for param in self.param_names]
@@ -166,6 +181,7 @@ class AcousticOptimizer:
                     if score > self.best_score:
                         self.best_score = score
                         self.best_params = points_to_evaluate[i]
+                        self.best_experiment_name = name
                         self.logger.info(f"New best score: {score}")
 
                     if plot_progress and (iteration + i + 1) % 10 == 0:
@@ -176,6 +192,7 @@ class AcousticOptimizer:
         self.logger.info(f"Optimization completed in {duration:.1f}s")
         self.logger.info(f"Best score: {self.best_score}")
         self.logger.info(f"Best parameters: {self.best_params}")
+        self.logger.info(f"Best experiment: {self.best_experiment_name}")
 
         # Save results
         self.save_results()
@@ -266,6 +283,29 @@ if __name__ == "__main__":
         validity_model_path=validity_model_path,
         output_dir=Path("optimization_results"),
         n_parallel=4,
+        validity_threshold=0.8,
+        additional_params = {
+            "ceiling_center_height": (2.2, 2.7),
+            "ceiling_center_width": (1.0, 3.5),
+            "ceiling_center_xmin": (0.3, 1.0),
+            "ceiling_center_xmax": (1.1, 3.0),
+            "wall_absorbers_Street_A": (0.5, 1.0),
+            "wall_absorbers_Hall_B": (0.5, 1.0),
+            "wall_absorbers_Street_A": (0.5, 1.0),
+            "wall_absorbers_Door_Side_A": (0.5, 1.0),
+            "wall_absorbers_Hall_E": (0.5, 1.0),
+            "wall_absorbers_Street_D": (0.5, 1.0),
+            "wall_absorbers_Street_B": (0.5, 1.0),
+            "wall_absorbers_Door_Side_B": (0.5, 1.0),
+            "wall_absorbers_Entry_Back": (0.5, 1.0),
+            "wall_absorbers_Street_C": (0.5, 1.0),
+            "wall_absorbers_Street_E": (0.5, 1.0),
+            "wall_absorbers_Hall_A": (0.5, 1.0),
+            "wall_absorbers_Entry_Front": (0.5, 1.0),
+            "wall_absorbers_Door": (0.5, 1.0),
+            "wall_absorbers_Back_A": (0.5, 1.0),
+            "wall_absorbers_Back_B": (0.5, 1.0),
+        }
     )
 
     # Run optimization

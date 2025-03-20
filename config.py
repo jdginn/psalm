@@ -206,6 +206,7 @@ class ExperimentConfig:
 
         return cls(**data)
 
+
 def load_from_file(path: str) -> ExperimentConfig:
     """Loads an ExperimentConfig from a YAML file."""
     try:

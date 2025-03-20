@@ -55,7 +55,7 @@ class SimulationRunner:
         self.timeout = timeout
         self.logger = logging.getLogger(__name__)
 
-    def run_simulation(self, name: str, params: Dict[str, float]) -> Tuple[dict, bool]:
+    def run_simulation(self, name: str, params: Dict[str, float]) -> Tuple[str, dict, bool]:
         """
         Runs a single simulation with the given parameters.
 
@@ -80,13 +80,13 @@ class SimulationRunner:
             simulation_success = self._execute_simulation(input_files, exp_dir)
 
             if not simulation_success:
-                return ({}, False)
+                return (name, {}, False)
                 raise SimulationError("Simulation failed to complete successfully")
 
             # Parse results
             results = self._parse_simulation_results(exp_dir)
 
-            return (results, True)
+            return (name, results, True)
 
         except Exception as e:
             self.logger.error(f"Simulation failed for experiment {name}: {str(e)}")
@@ -141,11 +141,76 @@ class SimulationRunner:
         if spec.materials.from_file != "":
             copy_file(spec.materials.from_file, self.config_path, exp_dir)
 
-        spec.listening_triangle.distance_from_front = parameters["distance_from_front"]
-        spec.listening_triangle.distance_from_center = parameters[
-            "distance_from_center"
-        ]
-        spec.listening_triangle.source_height = parameters["source_height"]
+        # Define the mapping of parameter names to their attribute paths
+        PARAM_MAPPING = {
+            "distance_from_front": "listening_triangle.distance_from_front",
+            "distance_from_center": "listening_triangle.distance_from_center",
+            "source_height": "listening_triangle.source_height",
+            "ceiling_center_height": "ceiling_panels.center.height",
+            "ceiling_center_width": "ceiling_panels.center.width",
+            "ceiling_center_xmax": "ceiling_panels.center.xmax",
+            "ceiling_center_xmin": "ceiling_panels.center.xmin",
+            "wall_absorbers_Hall_B": "wall_absorbers.heights|Hall B",
+            "wall_absorbers_Street_A": "wall_absorbers.heights|Street A",
+            "wall_absorbers_Door_Side_A": "wall_absorbers.heights|Door Side A",
+            "wall_absorbers_Hall_E": "wall_absorbers.heights|Hall E",
+            "wall_absorbers_Street_D": "wall_absorbers.heights|Street D",
+            "wall_absorbers_Street_B": "wall_absorbers.heights|Street B",
+            "wall_absorbers_Door_Side_B": "wall_absorbers.heights|Door Side B",
+            "wall_absorbers_Entry_Back": "wall_absorbers.heights|Entry Back",
+            "wall_absorbers_Street_C": "wall_absorbers.heights|Street C",
+            "wall_absorbers_Street_E": "wall_absorbers.heights|Street E",
+            "wall_absorbers_Hall_A": "wall_absorbers.heights|Hall A",
+            "wall_absorbers_Entry_Front": "wall_absorbers.heights|Entry Front",
+            "wall_absorbers_Door": "wall_absorbers.heights|Door",
+            "wall_absorbers_Back_A": "wall_absorbers.heights|Back A",
+            "wall_absorbers_Back_B": "wall_absorbers.heights|Back B",
+        }
+
+        def apply_parameters(spec, parameters):
+            # Only process parameters that are actually provided
+            for param_name in parameters.keys() & PARAM_MAPPING.keys():
+                value = parameters[param_name]
+                path = PARAM_MAPPING[param_name]
+                
+                # First check if we have a dictionary access
+                if '|' in path:
+                    attr_path, dict_key = path.split('|', 1)
+                    # Handle the attribute path
+                    obj = spec
+                    path_parts = attr_path.split('.')
+                    for part in path_parts:
+                        obj = getattr(obj, part)
+                    # Finally set the dictionary key
+                    obj[dict_key] = value
+                else:
+                    # Original attribute-only logic
+                    obj = spec
+                    *path_parts, final_attr = path.split('.')
+                    for part in path_parts:
+                        obj = getattr(obj, part)
+                    setattr(obj, final_attr, value)
+
+
+        # def apply_parameters(spec, parameters):
+        #     # Only process parameters that are actually provided
+        #     for param_name in parameters.keys() & PARAM_MAPPING.keys():
+        #         value = parameters[param_name]
+        #         # Split path and set nested attribute
+        #         obj = spec
+        #         *path_parts, final_attr = PARAM_MAPPING[param_name].split('.')
+        #         for part in path_parts:
+        #             obj = getattr(obj, part)
+        #         setattr(obj, final_attr, value)
+
+        # spec.listening_triangle.distance_from_front = parameters["distance_from_front"]
+        # spec.listening_triangle.distance_from_center = parameters[
+        #     "distance_from_center"
+        # ]
+        # spec.listening_triangle.source_height = parameters["source_height"]
+
+        apply_parameters(spec, parameters)
+
         spec_file = exp_dir / "config.yaml"
 
         config.save_to_file(spec, str(spec_file))
