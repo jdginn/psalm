@@ -335,7 +335,7 @@ def serialize_scene(
 class AnalysisResults:
     """Analysis results for binaural analysis."""
 
-    ITD: float
+    ITD: Optional[float] = None
     ITD_2: Optional[float] = None
     avg_gain_5ms: Optional[float] = None
     listen_pos_dist: Optional[float] = None
@@ -344,7 +344,7 @@ class AnalysisResults:
     def from_dict(cls, data: dict) -> "AnalysisResults":
         """Create AnalysisResults from dictionary representation."""
         return cls(
-            ITD=data["ITD"],
+            ITD=data.get("ITD"),
             ITD_2=data.get("ITD_2"),
             avg_gain_5ms=data.get("avg_gain_5ms"),
             listen_pos_dist=data.get("listen_pos_dist"),
@@ -352,7 +352,8 @@ class AnalysisResults:
 
     def to_dict(self) -> dict:
         """Convert AnalysisResults to dictionary representation."""
-        result = {"ITD": self.ITD}
+        if self.ITD is not None:
+            result = {"ITD": self.ITD}
         if self.ITD_2 is not None:
             result["ITD_2"] = self.ITD_2
         if self.avg_gain_5ms is not None:

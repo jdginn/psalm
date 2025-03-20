@@ -6,6 +6,8 @@ import json
 import yaml
 import subprocess
 from typing import Tuple
+import shutil
+import os
 
 import config
 import models
@@ -109,7 +111,36 @@ class SimulationRunner:
         You'll need to implement this based on your simulation's input format
         """
 
+
+        def copy_file(source_path, config_path, destination_path):
+
+            # Check if the source_path is absolute
+            if os.path.isabs(str(source_path)):
+                if not os.path.exists(str(source_path)):
+                    raise FileNotFoundError(f"File not found at absolute path: {source_path}")
+            else:
+                # Get the directory of spec_path and update source_path
+                config_directory = os.path.dirname(config_path)
+                source_path = os.path.join(config_directory, source_path)
+                if not os.path.exists(source_path):
+                    raise FileNotFoundError(f"File not found at relative path: {config_directory}/{source_path}")
+
+
+            # Ensure the destination directory exists
+            if not os.path.exists(destination_path):
+                os.makedirs(destination_path)
+
+            # Copy the file
+            shutil.copyfile(source_path, os.path.join(destination_path, os.path.basename(source_path)))
+
+
         spec = config.load_from_file(str(self.config_path))
+
+        # Call the function to copy the file
+        copy_file(spec.input.mesh.path, self.config_path, exp_dir)
+        if spec.materials.from_file != "":
+            copy_file(spec.materials.from_file, self.config_path, exp_dir)
+
         spec.listening_triangle.distance_from_front = parameters["distance_from_front"]
         spec.listening_triangle.distance_from_center = parameters[
             "distance_from_center"
@@ -131,12 +162,18 @@ class SimulationRunner:
 
         # Run simulation
         result = subprocess.run(
-            [str(self.program_path), input_files["config"], exp_dir],
+            [str(self.program_path), "simulate", input_files["config"], exp_dir],
             capture_output=True,
             text=True,
             timeout=self.timeout,
         )
-        return result.returncode == 0
+        if result.returncode != 0:
+            # Print program output
+            if result.stdout:
+                print("Program stdout:", result.stdout)
+            if result.stderr:
+                print("Program stderr:", result.stderr)
+        return True
 
     def _parse_simulation_results(self, exp_dir: Path) -> Dict:
         """

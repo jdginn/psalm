@@ -30,7 +30,7 @@ class ValidityLearner:
             simluator: SimulationRunner instance
         """
         self.bounds = bounds
-        self.simulator = simulator
+        self.simulator: SimulationRunner = simulator
 
         # Known trends about parameter impacts on validity
         self.parameter_trends = {
@@ -69,7 +69,7 @@ class ValidityLearner:
         results, ok = self.simulator.run_simulation(name, params)
         if not ok:
             return -1.0
-        if results["status"] != "success":
+        if results["status"] == "validation_error":
             return -1.0
         return 1.0
 
@@ -94,7 +94,7 @@ class ValidityLearner:
                     alpha = np.random.random()
 
                 value = min_val + alpha * (max_val - min_val)
-                sample[param] = value
+                sample[param] = float(value)
             samples.append(sample)
         return samples
 
@@ -110,6 +110,7 @@ class ValidityLearner:
         invalid_array = np.array(self.invalid_points)
 
         boundary_samples = []
+        param_names = list(self.bounds.keys())
 
         # Sample between valid and invalid points, with bias
         for valid_point in valid_array[: min(len(valid_array), n_samples // 2)]:
@@ -123,13 +124,26 @@ class ValidityLearner:
                 for alpha in alphas:
                     interpolated = valid_point * alpha + invalid_point * (1 - alpha)
                     # Apply trend-based adjustment
-                    for i, param in enumerate(self.bounds.keys()):
+                    for i, param in enumerate(param_names):
                         trend = self.parameter_trends[param]
                         if trend != 0:
                             interpolated[i] += trend * np.random.normal(0, 0.05)
-                    boundary_samples.append(interpolated)
+                        
+                        # Enforce bounds constraints
+                        min_val, max_val = self.bounds[param]
+                        print(f"bounds: min:{min_val} max:{max_val} unclipped:{interpolated[i]} clipped:{np.clip(interpolated[i], min_val, max_val)}")
+                        interpolated[i] = np.clip(interpolated[i], min_val, max_val)
+
+                    # Convert array back to dictionary format
+                    param_dict = {
+                        param: float(interpolated[i])
+                        for i, param in enumerate(param_names)
+                    }
+                    boundary_samples.append(param_dict)
 
         return boundary_samples
+
+
 
     def _record_sample(self, point, validity):
         """Record a sample and its validity"""
@@ -348,8 +362,8 @@ if __name__ == "__main__":
 
     # Example bounds
     bounds = {
-        "distance_from_front": (0, 0.8),
-        "distance_from_center": (0, 3.0),
+        "distance_from_front": (0.3, 0.8),
+        "distance_from_center": (0.8, 3.0),
         "source_height": (0, 2.2),
         "listen_height": (1.0, 1.6),
     }
@@ -370,31 +384,18 @@ if __name__ == "__main__":
     result = learner.check_validity(test_params)
     print(f"Test result: {result}")
 
-    if input("Continue with learning? (y/n): ").lower().strip() == "y":
-        # Learn validity boundary
-        learner.learn_validity_boundary(
-            initial_samples=100,  # Starting with fewer samples for testing
-            n_rounds=5,
-            samples_per_round=50,
-        )
+    # Learn validity boundary
+    learner.learn_validity_boundary(
+        initial_samples=10,  # Starting with fewer samples for testing
+        n_rounds=2,
+        samples_per_round=50,
+    )
 
-        # Get starting points for optimization
-        starting_points = learner.suggest_optimization_starting_points(n_points=5)
-        print("\nSuggested starting points:")
-        for point in starting_points:
-            print(point)
-            # Save the model
-        if input("\nSave model? (y/n): ").lower().strip() == "y":
-            model_path = learner.save_model()
-            print(f"\nModel saved to: {model_path}")
-
-            # Example of loading the model
-            print("\nTesting model loading...")
-            loaded_learner = ValidityLearner.load_model(model_path, checker)
-
-            # Verify loaded model works
-            test_point = starting_points[0]
-            original_prediction = learner.predict_validity(test_point)
-            loaded_prediction = loaded_learner.predict_validity(test_point)
-            print(f"Original model prediction: {original_prediction}")
-            print(f"Loaded model prediction: {loaded_prediction}")
+    # Get starting points for optimization
+    starting_points = learner.suggest_optimization_starting_points(n_points=5)
+    print("\nSuggested starting points:")
+    for point in starting_points:
+        print(point)
+        # Save the model
+    model_path = learner.save_model()
+    print(f"\nModel saved to: {model_path}")
