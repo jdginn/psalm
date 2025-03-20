@@ -5,6 +5,7 @@ lxml
 scipy
 pydantic
 scikit-learn
+scikit-optimize
 PyYAML
 matplotlib
 seaborn
