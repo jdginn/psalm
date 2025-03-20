@@ -131,7 +131,6 @@ class ValidityLearner:
                         
                         # Enforce bounds constraints
                         min_val, max_val = self.bounds[param]
-                        print(f"bounds: min:{min_val} max:{max_val} unclipped:{interpolated[i]} clipped:{np.clip(interpolated[i], min_val, max_val)}")
                         interpolated[i] = np.clip(interpolated[i], min_val, max_val)
 
                     # Convert array back to dictionary format

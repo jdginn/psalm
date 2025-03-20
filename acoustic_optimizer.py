@@ -102,11 +102,13 @@ class AcousticOptimizer:
         point_scaled = self.scaler.transform([point_array])
         return self.validity_model.predict_proba(point_scaled)[0][1]
 
-    def generate_exploration_points(self, n_points: int) -> List[Dict[str, float]]:
+    def generate_exploration_points(self, n_points: int) -> List[tuple[Dict[str, float], float]]:
         """Generate points using Bayesian optimization strategy"""
         points = []
         attempts = 0
-        max_attempts = n_points * 1000
+        max_attempts = n_points * 100
+        rejected_count = 0
+        validity = 0
 
         while len(points) < n_points and attempts < max_attempts:
             # Ask the optimizer for a batch of points
@@ -115,14 +117,27 @@ class AcousticOptimizer:
             for point in candidate_points:
                 # Convert to dictionary
                 params = dict(zip(self.param_names, point))
+                validity = self.predict_validity(params)
                 
                 # Check validity
-                if self.predict_validity(params) >= self.validity_threshold:
-                    points.append(params)
+                # if validity >= self.validity_threshold:
+                #     points.append((params, validity))
+                # else:
+                #     rejected_count += 1
+                #     self.logger.debug(f"Point rejected with validity score {validity}")
+                points.append((params, validity))
+
 
                 attempts += 1
                 if len(points) >= n_points:
                     break
+
+            if attempts >= max_attempts:
+                self.logger.warning(
+                    f"Hit max attempts ({max_attempts}). Found {len(points)} valid points. "
+                    f"Rejected {rejected_count} points. "
+                    f"Validity threshold: {self.validity_threshold}"
+                )
 
         return points
 
@@ -145,7 +160,7 @@ class AcousticOptimizer:
             # Run simulations in parallel
             with ThreadPoolExecutor(max_workers=self.n_parallel) as executor:
                 futures = []
-                for params in points_to_evaluate:
+                for params, validity in points_to_evaluate:
                     futures.append(
                         executor.submit(
                             self.simulator.run_simulation,
@@ -156,17 +171,18 @@ class AcousticOptimizer:
 
                 # Process results as they complete
                 for i, future in enumerate(futures):
-                    print("failed experiment")
+                    point, validity = points_to_evaluate[i]
                     name, simulation_result, success = future.result()
-                    if simulation_result["status"] != "success":
+                    if simulation_result["status"] == "success":
+                        score = simulation_result["results"]["ITD"]
+                        print(f"score: {score}")
+                    else:
                         print(f"Experiment failed")
-                        continue
-                    score = simulation_result["results"]["ITD"]
-                    print(f"Experiment score: {score}")
+                        score = -1000
+                    
 
                     # Tell the optimizer about the result
-                    point = [points_to_evaluate[i][param] for param in self.param_names]
-                    self.optimizer.tell(point, -score)  # Negative because we're maximizing
+                    self.optimizer.tell([point[param] for param in self.param_names], -score)  # Negative because we're maximizing
 
                     store_result = {
                         "params": points_to_evaluate[i],
@@ -282,8 +298,8 @@ if __name__ == "__main__":
         simulator=simulator,
         validity_model_path=validity_model_path,
         output_dir=Path("optimization_results"),
-        n_parallel=4,
-        validity_threshold=0.8,
+        n_parallel=16,
+        validity_threshold=0.1,
         additional_params = {
             "ceiling_center_height": (2.2, 2.7),
             "ceiling_center_width": (1.0, 3.5),
