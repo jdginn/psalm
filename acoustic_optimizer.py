@@ -18,6 +18,7 @@ import logging
 import sys
 
 from simulation_runner import SimulationRunner
+from name_generator import generate_experiment_id
 
 
 class AcousticOptimizer:
@@ -87,39 +88,6 @@ class AcousticOptimizer:
 
         return points
 
-    # def generate_exploration_points(self, n_points: int) -> List[Dict[str, float]]:
-    #     """Generate test points that we believe should work"""
-    #     # Hard-coded test points that should be valid
-    #     known_points = [
-    #         {
-    #             "distance_from_front": 0.6,  # Far from front
-    #             "distance_from_center": 1.3,  # Close to center
-    #             "source_height": 1.7,  # Low source
-    #             "listen_height": 1.4,  # Reasonable listening height
-    #         },
-    #         {
-    #             "distance_from_front": 0.7,
-    #             "distance_from_center": 1.1,
-    #             "source_height": 1.6,
-    #             "listen_height": 1.2,
-    #         },
-    #         {
-    #             "distance_from_front": 0.6,
-    #             "distance_from_center": 1.4,
-    #             "source_height": 1.5,
-    #             "listen_height": 1.0,
-    #         },
-    #         # Add more known points if needed...
-    #     ]
-    #
-    #     self.logger.info("Using hard-coded test points instead of random exploration")
-    #     for point in known_points:
-    #         validity_score = self.predict_validity(point)
-    #         self.logger.info(f"Point {point} has validity score: {validity_score}")
-    #
-    #     # Return either the requested number of points or all known points
-    #     return known_points[: min(n_points, len(known_points))]
-
     def optimize(self, n_iterations: int = 100, plot_progress: bool = True):
         """
         Run optimization process
@@ -141,13 +109,18 @@ class AcousticOptimizer:
         with ThreadPoolExecutor(max_workers=self.n_parallel) as executor:
             futures = []
             for params in points_to_evaluate:
-                futures.append(executor.submit(self.simulator.run_simulation, params))
+                futures.append(executor.submit(self.simulator.run_simulation, generate_experiment_id(), params))
 
             # Process results as they complete
             for i, future in enumerate(futures):
-                score, success = future.result()
+                simulation_result, success = future.result()
+                print(f"simulation_result: {simulation_result}")
+                score = 0.0
+                if simulation_result["status"] == "success":
+                    score = simulation_result["results"]["ITD"]
 
-                result = {
+
+                store_result = {
                     "params": points_to_evaluate[i],
                     "score": score,
                     "success": success,
@@ -155,12 +128,12 @@ class AcousticOptimizer:
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 }
 
-                self.results.append(result)
+                self.results.append(store_result)
 
                 if score > self.best_score:
                     self.best_score = score
                     self.best_params = points_to_evaluate[i]
-                    self.logger.info(f"New best score: {score}")
+                    self.logger.info(f"New best score: {simulation_result}")
 
                 if plot_progress and (i + 1) % 10 == 0:
                     self.plot_progress()
@@ -234,26 +207,27 @@ if __name__ == "__main__":
     setup_logging()
     logger = logging.getLogger(__name__)
 
-    if len(sys.argv) != 4:
+    if len(sys.argv) != 5:
         print(
-            "Usage: python acoustic_optimizer.py <simulator_path> <config_path> <validity_model_path>"
+            "Usage: python acoustic_optimizer.py <simulator_path> <path_to_save_results> <config_path> <validity_model_path>"
         )
         sys.exit(1)
 
-    simulator_path = Path(sys.argv[1])
-    config_path = Path(sys.argv[2])
-    validity_model_path = Path(sys.argv[3])
+    program_path = Path(sys.argv[1])
+    base_directory = Path(sys.argv[2])
+    config_path = Path(sys.argv[3])
+    validity_model_path = Path(sys.argv[4])
 
     # Verify paths exist
-    if not simulator_path.exists():
-        logger.error(f"Simulator not found: {simulator_path}")
+    if not program_path.exists():
+        logger.error(f"Simulator not found: {program_path}")
         sys.exit(1)
     if not validity_model_path.exists():
         logger.error(f"Validity model not found: {validity_model_path}")
         sys.exit(1)
 
     # Setup optimization
-    simulator = SimulationRunner(Path("."), simulator_path, config_path)
+    simulator = SimulationRunner(program_path=program_path, base_directory=base_directory, config_path=config_path)
     optimizer = AcousticOptimizer(
         simulator=simulator,
         validity_model_path=validity_model_path,
@@ -262,4 +236,4 @@ if __name__ == "__main__":
     )
 
     # Run optimization
-    optimizer.optimize(n_iterations=10_000, plot_progress=True)
+    optimizer.optimize(n_iterations=100, plot_progress=True)

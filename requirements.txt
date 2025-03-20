@@ -6,3 +6,5 @@ scipy
 pydantic
 scikit-learn
 PyYAML
+matplotlib
+seaborn
