@@ -52,6 +52,13 @@ class AcousticOptimizer:
         self.n_parallel = n_parallel
         self.bounds = bounds
 
+        # Add convergence tracking
+        self.score_history = []
+        self.window_size = 20  # Look at last 20 iterations
+        self.improvement_threshold = 0.1  # 1% improvement
+        self.stall_count = 0
+        self.min_stall_iterations = 20  # Require this many stalled iterations before claiming convergence
+
         # Setup Bayesian optimization
         self.space = [
             Real(low, high, name=param)
@@ -72,6 +79,7 @@ class AcousticOptimizer:
         # Setup results tracking
         self.results: List[Dict] = []
         self.best_score = float("-inf")
+        self._last_iter_best_score = float("-inf")
         self.best_params = None
         self.best_experiment_name = ""
 
@@ -110,6 +118,41 @@ class AcousticOptimizer:
 
         return points
 
+    def check_convergence(self) -> bool:
+        """
+        Check if optimization appears to be converging.
+        Returns True if we're likely converging.
+        """
+        print(f"score_history length: {len(self.score_history)}")
+        if len(self.score_history) < self.window_size:
+            return False
+
+        # Look at recent scores
+        recent_scores = self.score_history[-self.window_size:]
+        
+        # Calculate relative improvement over window
+        max_recent = max(recent_scores)
+        min_recent = min(recent_scores)
+        print(f"prev best: {self._last_iter_best_score} vs {self.best_score}")
+        relative_improvement = (max_recent - self._last_iter_best_score) / self._last_iter_best_score
+        print(f"relative improvement: {relative_improvement}")
+        self._last_iter_best_score = self.best_score
+
+        # Check if we're still making meaningful improvements
+        if relative_improvement < self.improvement_threshold:
+            self.stall_count += 1 * self.n_parallel
+            print(f"stalls: {self.stall_count}")
+        else:
+            self.stall_count = 0
+
+        # Log convergence metrics
+        self.logger.debug(
+            f"Convergence check: improvement={relative_improvement:.4f}, "
+            f"stall_count={self.stall_count}"
+        )
+
+        return self.stall_count >= self.min_stall_iterations
+
     def optimize(self, n_iterations: int = 100, plot_progress: bool = True):
         """
         Run optimization process
@@ -118,8 +161,12 @@ class AcousticOptimizer:
             n_iterations: Number of points to evaluate
             plot_progress: Whether to show progress plot
         """
+
         start_time = datetime.now(timezone.utc)
         self.logger.info(f"Starting optimization with {n_iterations} iterations")
+
+        current_resolution = "low"
+        resolution_map = {"low": 1_000, "medium": 10_000, "high": 200_000}
 
         for iteration in range(0, n_iterations, self.n_parallel):
             # Generate batch of points
@@ -130,6 +177,9 @@ class AcousticOptimizer:
             with ThreadPoolExecutor(max_workers=self.n_parallel) as executor:
                 futures = []
                 for params in points_to_evaluate:
+                    
+                    params["shot_count"] = resolution_map[current_resolution]
+
                     futures.append(
                         executor.submit(
                             self.simulator.run_simulation,
@@ -139,15 +189,16 @@ class AcousticOptimizer:
                     )
 
                 # Process results as they complete
+                batch_scores = []
                 for i, future in enumerate(futures):
                     point = points_to_evaluate[i]
                     name, simulation_result, success = future.result()
                     if simulation_result["status"] == "success":
                         score = simulation_result["results"]["ITD"]
-                        print(f"score: {score}")
+                        batch_scores.append(score)
                     else:
-                        print(f"Experiment failed")
                         score = -1
+                        batch_scores.append(score)
                     
 
                     # Tell the optimizer about the result
@@ -171,6 +222,33 @@ class AcousticOptimizer:
 
                     if plot_progress and (iteration + i + 1) % 10 == 0:
                         self.plot_progress()
+
+                    
+            # NEW: Update score history after batch completes
+            self.score_history.extend(batch_scores)
+
+            if self.check_convergence():
+                if current_resolution == "low":
+                    self.logger.info("Converging at low resolution - switching to medium resolution")
+                    current_resolution = "medium"
+                    # Reset convergence tracking for new resolution
+                    self.score_history = []
+                    self.stall_count = 0
+                    self.best_score = 0
+                elif current_resolution == "medium":
+                    self.logger.info("Converging at medium resolution - switching to high resolution")
+                    current_resolution = "high"
+                    # Reset convergence tracking for new resolution
+                    self.score_history = []
+                    self.stall_count = 0
+                    self.best_score = 0
+                elif current_resolution == "high":
+                    self.logger.info(
+                        f"Optimization appears to have fully converged after {iteration} iterations. "
+                        f"Best score: {self.best_score:.4f}"
+                    )
+                    break  # End optimization early
+
 
         # Final results
         duration = (datetime.now(timezone.utc) - start_time).total_seconds()
@@ -242,7 +320,7 @@ if __name__ == "__main__":
     setup_logging()
     logger = logging.getLogger(__name__)
 
-    if len(sys.argv) != 5:
+    if len(sys.argv) != 4:
         print(
             "Usage: python acoustic_optimizer.py <simulator_path> <path_to_save_results> <config_path>"
         )
@@ -269,24 +347,24 @@ if __name__ == "__main__":
             "source_height": (0.8, 2.2),
             "ceiling_center_height": (2.2, 2.7),
             "ceiling_center_width": (1.0, 3.5),
-            "ceiling_center_xmin": (0.3, 1.0),
+            "ceiling_center_xmin": (0.3, 1.3),
             "ceiling_center_xmax": (1.1, 3.0),
-            "wall_absorbers_Street_A": (0.5, 1.0),
-            "wall_absorbers_Hall_B": (0.5, 1.0),
-            "wall_absorbers_Street_A": (0.5, 1.0),
-            "wall_absorbers_Door_Side_A": (0.5, 1.0),
-            "wall_absorbers_Hall_E": (0.5, 1.0),
-            "wall_absorbers_Street_D": (0.5, 1.0),
-            "wall_absorbers_Street_B": (0.5, 1.0),
-            "wall_absorbers_Door_Side_B": (0.5, 1.0),
-            "wall_absorbers_Entry_Back": (0.5, 1.0),
-            "wall_absorbers_Street_C": (0.5, 1.0),
-            "wall_absorbers_Street_E": (0.5, 1.0),
-            "wall_absorbers_Hall_A": (0.5, 1.0),
-            "wall_absorbers_Entry_Front": (0.5, 1.0),
-            "wall_absorbers_Door": (0.5, 1.0),
-            "wall_absorbers_Back_A": (0.5, 1.0),
-            "wall_absorbers_Back_B": (0.5, 1.0),
+            "wall_absorbers_Street_A": (0.5, 1.3),
+            "wall_absorbers_Hall_B": (0.5, 1.3),
+            "wall_absorbers_Street_A": (0.5, 1.3),
+            "wall_absorbers_Door_Side_A": (0.5, 1.3),
+            "wall_absorbers_Hall_E": (0.5, 1.3),
+            "wall_absorbers_Street_D": (0.5, 1.3),
+            "wall_absorbers_Street_B": (0.5, 1.3),
+            "wall_absorbers_Door_Side_B": (0.5, 1.3),
+            "wall_absorbers_Entry_Back": (0.5, 1.3),
+            "wall_absorbers_Street_C": (0.5, 1.3),
+            "wall_absorbers_Street_E": (0.5, 1.3),
+            "wall_absorbers_Hall_A": (0.5, 1.3),
+            "wall_absorbers_Entry_Front": (0.5, 1.3),
+            "wall_absorbers_Door": (0.5, 1.3),
+            "wall_absorbers_Back_A": (0.5, 1.3),
+            "wall_absorbers_Back_B": (0.5, 1.3),
         }
     )
 

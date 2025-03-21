@@ -143,6 +143,7 @@ class SimulationRunner:
 
         # Define the mapping of parameter names to their attribute paths
         PARAM_MAPPING = {
+            "shot_count": "simulation.shot_count",
             "distance_from_front": "listening_triangle.distance_from_front",
             "distance_from_center": "listening_triangle.distance_from_center",
             "source_height": "listening_triangle.source_height",
