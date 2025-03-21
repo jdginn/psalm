@@ -57,7 +57,7 @@ class AcousticOptimizer:
         self.window_size = 20  # Look at last 20 iterations
         self.improvement_threshold = 0.1  # 1% improvement
         self.stall_count = 0
-        self.min_stall_iterations = 20  # Require this many stalled iterations before claiming convergence
+        self.min_stall_iterations = 40  # Require this many stalled iterations before claiming convergence
 
         # Setup Bayesian optimization
         self.space = [
@@ -166,7 +166,7 @@ class AcousticOptimizer:
         self.logger.info(f"Starting optimization with {n_iterations} iterations")
 
         current_resolution = "low"
-        resolution_map = {"low": 1_000, "medium": 10_000, "high": 200_000}
+        resolution_map = {"low": 100_000, "medium": 500_000, "high": 200_000}
 
         for iteration in range(0, n_iterations, self.n_parallel):
             # Generate batch of points
@@ -192,9 +192,18 @@ class AcousticOptimizer:
                 batch_scores = []
                 for i, future in enumerate(futures):
                     point = points_to_evaluate[i]
+                    absorber_area = point["ceiling_center_width"] * (point["ceiling_center_xmax"] - point["ceiling_center_xmin"])
                     name, simulation_result, success = future.result()
+                    itd = 0.0
+                    avg_energy_over_window = 0.1
                     if simulation_result["status"] == "success":
                         score = simulation_result["results"]["ITD"]
+
+                        itd = simulation_result["results"]["ITD"]
+                        avg_energy_over_window = simulation_result["results"].get("avg_energy_over_window")
+
+                        score = min(itd, 30)
+
                         batch_scores.append(score)
                     else:
                         score = -1
@@ -207,6 +216,12 @@ class AcousticOptimizer:
                     store_result = {
                         "params": points_to_evaluate[i],
                         "score": score,
+                        "foms": {
+                                "ITD": itd,
+                                "avg_energy_over_window": avg_energy_over_window,
+                                "absorber_area": absorber_area,
+                                },
+                        "simulation_results": simulation_result["results"],
                         "success": success,
                         "iteration": iteration + i,
                         "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -219,35 +234,41 @@ class AcousticOptimizer:
                         self.best_params = points_to_evaluate[i]
                         self.best_experiment_name = name
                         self.logger.info(f"New best score: {score}")
+                        self.logger.info(f"\t: ITD: {store_result['foms']['ITD']}")
+                        self.logger.info(f"\t: avg_energy_25ms: {store_result['foms']['avg_energy_over_window']}")
+                        self.logger.info(f"\t: absorber_area: {store_result['foms']['absorber_area']}")
 
-                    if plot_progress and (iteration + i + 1) % 10 == 0:
-                        self.plot_progress()
 
                     
             # NEW: Update score history after batch completes
             self.score_history.extend(batch_scores)
 
             if self.check_convergence():
-                if current_resolution == "low":
-                    self.logger.info("Converging at low resolution - switching to medium resolution")
-                    current_resolution = "medium"
-                    # Reset convergence tracking for new resolution
-                    self.score_history = []
-                    self.stall_count = 0
-                    self.best_score = 0
-                elif current_resolution == "medium":
-                    self.logger.info("Converging at medium resolution - switching to high resolution")
-                    current_resolution = "high"
-                    # Reset convergence tracking for new resolution
-                    self.score_history = []
-                    self.stall_count = 0
-                    self.best_score = 0
-                elif current_resolution == "high":
-                    self.logger.info(
-                        f"Optimization appears to have fully converged after {iteration} iterations. "
-                        f"Best score: {self.best_score:.4f}"
-                    )
+                # if plot_progress and (iteration + i + 1) % 10 == 0:
+                if plot_progress: 
+                    self.plot_progress(True)
+                # if current_resolution == "low":
+                #     self.logger.info("Converging at low resolution - switching to medium resolution")
+                #     current_resolution = "medium"
+                #     # Reset convergence tracking for new resolution
+                #     self.score_history = []
+                #     self.stall_count = 0
+                #     self.best_score = 0
+                # elif current_resolution == "medium":
+                #     self.logger.info("Converging at medium resolution - switching to high resolution")
+                #     current_resolution = "high"
+                #     # Reset convergence tracking for new resolution
+                #     self.score_history = []
+                #     self.stall_count = 0
+                #     self.best_score = 0
+                # elif current_resolution == "high":
+                #     self.logger.info(
+                #         f"Optimization appears to have fully converged after {iteration} iterations. "
+                #         f"Best score: {self.best_score:.4f}"
+                #     )
                     break  # End optimization early
+            if plot_progress: 
+                self.plot_progress(False)
 
 
         # Final results
@@ -260,25 +281,43 @@ class AcousticOptimizer:
         # Save results
         self.save_results()
 
-    def plot_progress(self):
-        """Plot optimization progress"""
+    def plot_progress(self, reset_best_so_far: bool = False):
+        """
+        Plot optimization progress
+        
+        Args:
+            reset_best_so_far: If True, reset the "best so far" line at this point
+        """
+
+        if reset_best_so_far:
+            self._plot_from = len(self.results) - 1
+
         plt.figure(figsize=(10, 6))
 
         # Plot scores over iterations
         scores = [r["score"] for r in self.results]
         iterations = range(len(scores))
 
+        # Always plot all scores
         plt.plot(iterations, scores, "b.", label="Scores")
-        plt.plot(iterations, np.maximum.accumulate(scores), "r-", label="Best so far")
 
-        plt.xlabel("Iteration")
-        plt.ylabel("Score")
-        plt.title("Optimization Progress")
-        plt.legend()
+        if hasattr(self, '_plot_from'):
+            plt.plot(iterations[self._plot_from:], np.maximum.accumulate(scores[self._plot_from:]), 
+                    "r-", label="Best so far")
+        else:
+            plt.plot(iterations, np.maximum.accumulate(scores), 
+                    "r-", label="Best so far")
 
-        # Save plot
-        plt.savefig(self.output_dir / "optimization_progress.png")
-        plt.close()
+            plt.xlabel("Iteration")
+            plt.ylabel("Score")
+            plt.title("Optimization Progress")
+            plt.legend()
+
+            # Save plot
+            plt.savefig(self.output_dir / "optimization_progress.png")
+            plt.close()
+
+
 
     def save_results(self):
         """Save optimization results and metadata"""
@@ -347,8 +386,8 @@ if __name__ == "__main__":
             "source_height": (0.8, 2.2),
             "ceiling_center_height": (2.2, 2.7),
             "ceiling_center_width": (1.0, 3.5),
-            "ceiling_center_xmin": (0.3, 1.3),
-            "ceiling_center_xmax": (1.1, 3.0),
+            "ceiling_center_xmin": (0.3, 1.1),
+            "ceiling_center_xmax": (1.3, 3.0),
             "wall_absorbers_Street_A": (0.5, 1.3),
             "wall_absorbers_Hall_B": (0.5, 1.3),
             "wall_absorbers_Street_A": (0.5, 1.3),
