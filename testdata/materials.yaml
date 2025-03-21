@@ -1,0 +1,16 @@
+brick:
+  absorption: 0.04
+wood:
+  absorption: 0.1
+gypsum:
+  absorption: 0.05
+diffuser:
+  absorption: 0.99
+rockwool_12cm:
+  absorption: 0.9
+rockwool_24cm:
+  absorption: 0.996
+rockwool_30cm:
+  absorption: 0.999
+glass:
+  absorption: 0.0

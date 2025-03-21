@@ -72,7 +72,7 @@ class AcousticOptimizer:
             base_estimator="GP",  # Gaussian Process
             acq_func="EI",       # Expected Improvement
             acq_optimizer="auto",
-            n_initial_points=10,  # Number of random points before using surrogate model
+            n_initial_points=30,  # Number of random points before using surrogate model
             random_state=42
         )
 
@@ -202,7 +202,7 @@ class AcousticOptimizer:
                         itd = simulation_result["results"]["ITD"]
                         avg_energy_over_window = simulation_result["results"].get("avg_energy_over_window")
 
-                        score = min(itd, 30)
+                        score = min(itd, 30) - absorber_area * 1.5 
 
                         batch_scores.append(score)
                     else:
@@ -385,7 +385,7 @@ if __name__ == "__main__":
             "distance_from_center": (0.8, 3.0),
             "source_height": (0.8, 2.2),
             "ceiling_center_height": (2.2, 2.7),
-            "ceiling_center_width": (1.0, 3.5),
+            "ceiling_center_width": (0.25, 3.5),
             "ceiling_center_xmin": (0.3, 1.1),
             "ceiling_center_xmax": (1.3, 3.0),
             "wall_absorbers_Street_A": (0.5, 1.3),

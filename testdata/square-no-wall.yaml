@@ -1,0 +1,138 @@
+input:
+  mesh:
+    path: "Cutout.3mf"
+
+materials:
+  inline:
+    brick:
+      absorption: 0.04
+    wood:
+      absorption: 0.1
+    gypsum:
+      absorption: 0.05
+    diffuser:
+      absorption: 0.99
+    rockwool_12cm:
+      absorption: 0.9
+    rockwool_24cm:
+      absorption: 0.996
+    rockwool_30cm:
+      absorption: 0.999
+    glass:
+      absorption: 0.0
+
+surface_assignments:
+  inline:
+    default: "brick"
+    Floor: "wood"
+    Front A: "gypsum"
+    Front B: "gypsum"
+    Back Diffuser: "diffuser"
+    Ceiling Absorber: "rockwool_24cm"
+    Secondary Ceiling Absorber L: "rockwool_24cm"
+    Secondary Ceiling Absorber R: "rockwool_24cm"
+    Street Absorber: "rockwool_24cm"
+    Front Hall Absorber: "rockwool_24cm"
+    Back Hall Absorber: "rockwool_24cm"
+    Cutout Top: "rockwool_24cm"
+    Door: "rockwool_12cm"
+    L Speaker Gap: "rockwool_24cm"
+    R Speaker Gap: "rockwool_24cm"
+    Window A: "glass"
+    Window B: "glass"
+    left speaker wall: "gypsum"
+    right speaker wall: "gypsum"
+    Center Ceiling Absorber: "rockwool_24cm"
+    Left Ceiling Absorber: "rockwool_24cm"
+    Right Ceiling Absorber: "rockwool_24cm"
+
+speaker:
+  model: "Square2"
+  dimensions:
+    x: 0.38
+    y: 0.256
+    z: 0.52
+  offset:
+    y: 0.096
+    z: 0.412
+  directivity:
+    horizontal:
+      0: 0
+      30: -3
+      45: -6
+      50: -9
+      60: -12
+      70: -15
+      80: -18
+      100: -30
+    vertical:
+      0: 0
+      30: -3
+      45: -6
+      50: -9
+      60: -12
+      70: -15
+      80: -18
+      100: -30
+      # 0: 0
+      # 30: 0
+      # 60: -4
+      # 70: -7
+      # 80: -9
+      # 100: -9
+      # 120: -9
+      # 150: -15
+
+listening_triangle:
+  reference_position: [0, 2.37, 0.0]
+  reference_normal: [1, 0, 0]
+  distance_from_front: 0.516
+  distance_from_center: 1.352
+  source_height: 1.7
+  listen_height: 1.4
+
+simulation:
+  rfz_radius: 0.5
+  shot_count: 10000
+  shot_angle_range: 180
+  order: 10
+  gain_threshold_db: -20
+  time_threshold_ms: 100
+
+flags:
+  skip_speaker_in_room_check: true
+  skip_add_speaker_wall: true
+
+ceiling_panels:
+  center:
+    thickness: 0.14
+    height: 2.0
+    width: 1.5
+    xmin: 0.6
+    xmax: 2.0
+  # sides:
+  #   thickness: 0.14
+  #   height: 1.9
+  #   width: 1.2
+  #   spacing: 1.9
+  #   xmin: 0.3
+  #   xmax: 1.8
+
+wall_absorbers:
+  thickness: 0.14
+  heights:
+    "Hall B": 0.5
+    "Street A": 0.5
+    "Door Side A": 0.5
+    "Hall E": 0.5
+    "Street D": 0.5
+    "Street B": 0.5
+    "Door Side B": 0.5
+    "Entry Back": 0.5
+    "Street C": 0.5
+    "Street E": 0.5
+    "Hall A": 0.5
+    "Entry Front": 0.5
+    "Door": 0.5
+    "Back A": 0.5
+    "Back B": 0.5
