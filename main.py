@@ -36,7 +36,7 @@ def create_path_geometry(path: Path) -> trimesh.path.Path3D:
     vertices = [p.to_array() for p in path.points]
 
     # If no color specified, generate a random one
-    path_color = "#{:06x}".format(random.randint(0, 0xFFFFFF))
+    path_color = getattr(path, "color","#{:06x}".format(random.randint(0, 0xFFFFFF)))
 
     # Convert hex color to RGBA with 50% transparency
     rgba = list(trimesh.visual.color.hex_to_rgba(path_color))
