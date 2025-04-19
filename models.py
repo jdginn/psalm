@@ -160,7 +160,7 @@ class Material:
     @classmethod
     def from_dict(cls, data: dict) -> "Material":
         """Create Material from dictionary representation."""
-        return cls(absorption=data["absorption"])
+        return cls(absorption=0)
 
     def to_dict(self) -> dict:
         """Convert Material to dictionary representation."""
