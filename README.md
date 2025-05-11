@@ -43,6 +43,8 @@ The optimizer uses Bayesian optimization to find optimal studio configurations:
    - Minimize required absorptive surface area
 4. Support for custom optimization objectives
 
+- You'll have to do some hacking. The optimization code is functional for fellow hackers but really not polished enough for non-hackers.
+
 ## Getting Started
 
 ### Installation
@@ -100,10 +102,11 @@ In step mode, navigation controls are:
 
 ### File Format Documentation
 
-The visualization tool reads two key files from the simulation output:
+The visualization tool reads three key files from the simulation output:
 
 - `annotations.json`: Contains reflection paths and geometry data (see annotations_schema.md)
 - `summary.json`: Contains acoustic parameters and results (see summary_schema.md)
+- `room.stl`: Contains acoustic parameters and results (see summary_schema.md)
 
 ### Optimization Usage
 
@@ -117,7 +120,7 @@ python acoustic_optimizer.py config.yaml
 
 ## License
 
-[License information needed]
+MIT license. (See LICENSE file)
 
 ## Acknowledgments
 
