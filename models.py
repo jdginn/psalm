@@ -85,16 +85,31 @@ class Shot:
     """An acoustic ray with initial gain."""
 
     ray: Ray
+    sourceNormal: Ray
     gain: float  # stored in dB
+    yaw: float  # stored in deg
+    pitch: float  # stored in deg
 
     @classmethod
     def from_dict(cls, data: dict) -> "Shot":
         """Create Shot from dictionary representation."""
-        return cls(ray=Ray.from_dict(data["ray"]), gain=data["gain"])
+        return cls(
+            ray=Ray.from_dict(data["ray"]),
+            sourceNormal=Ray.from_dict(data["sourceNormal"]),
+            gain=data["gain"],
+            yaw=data["yaw"],
+            pitch=data["pitch"],
+        )
 
     def to_dict(self) -> dict:
         """Convert Shot to dictionary representation."""
-        return {"ray": self.ray.to_dict(), "gain": self.gain}
+        return {
+            "ray": self.ray.to_dict(),
+            "sourceNormal": self.sourceNormal.to_dict(),
+            "gain": self.gain,
+            "yaw": self.yaw,
+            "pitch": self.pitch,
+        }
 
 
 @dataclass
@@ -223,6 +238,8 @@ class AcousticPath:
 
     reflections: List[Reflection]
     shot: Shot
+    gain_from_reflections: float  # stored in dB
+    gain_from_distance: float  # stored in dB
     gain: float  # stored in dB
     distance: float
     nearest_approach: NearestApproach
@@ -236,6 +253,8 @@ class AcousticPath:
         return cls(
             reflections=[Reflection.from_dict(r) for r in data["reflections"]],
             shot=Shot.from_dict(data["shot"]),
+            gain_from_reflections=data["gainFromReflections"],
+            gain_from_distance=data["gainFromDistance"],
             gain=data["gain"],
             distance=data["distance"],
             nearest_approach=NearestApproach.from_dict(data["nearestApproach"]),
@@ -249,6 +268,8 @@ class AcousticPath:
         result = {
             "reflections": [r.to_dict() for r in self.reflections],
             "shot": self.shot.to_dict(),
+            "gainFromReflections": self.gain_from_reflections,
+            "gainFromDistance": self.gain_from_distance,
             "gain": self.gain,
             "distance": self.distance,
             "nearestApproach": self.nearest_approach.to_dict(),

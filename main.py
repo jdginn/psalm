@@ -7,7 +7,7 @@ import math
 import os.path
 import time
 import numpy as np
-from models import Point, Path, AcousticPath, Zone, Reflection, SummaryResults
+from models import Point, Path, AcousticPath, Zone, Reflection, SummaryResults, Ray
 import sys
 import multiprocessing
 from multiprocessing import Process, Queue
@@ -36,7 +36,7 @@ def create_path_geometry(path: Path) -> trimesh.path.Path3D:
     vertices = [p.to_array() for p in path.points]
 
     # If no color specified, generate a random one
-    path_color = getattr(path, "color","#{:06x}".format(random.randint(0, 0xFFFFFF)))
+    path_color = getattr(path, "color", "#{:06x}".format(random.randint(0, 0xFFFFFF)))
 
     # Convert hex color to RGBA with 50% transparency
     rgba = list(trimesh.visual.color.hex_to_rgba(path_color))
@@ -99,7 +99,9 @@ def create_zone_geometry(zone: Zone) -> trimesh.Trimesh:
     return sphere
 
 
-def create_normal_paths(reflections: List[Reflection], length: float) -> List[Path]:
+def create_normal_paths_from_reflections(
+    reflections: List[Reflection], length: float
+) -> List[Path]:
     normal_paths = []
     for reflection in reflections:
         start = reflection.position
@@ -118,6 +120,21 @@ def create_normal_paths(reflections: List[Reflection], length: float) -> List[Pa
         )
         normal_paths.append(Path(points=[reflection.position, end]))
     return normal_paths
+
+
+def create_normal_path(ray: Ray, length: float):
+    return create_path_geometry(
+        Path(
+            points=[
+                ray.origin,
+                Point(
+                    x=ray.origin.x + ray.direction.x * length,
+                    y=ray.origin.y + ray.direction.y * length,
+                    z=ray.origin.z + ray.direction.z * length,
+                ),
+            ]
+        )
+    )
 
 
 def filter_floor_bounce(
@@ -301,10 +318,14 @@ def visualize_reflections_step(
             ),
         )
 
+        scene.add_geometry(create_normal_path(current_path.shot.sourceNormal, 1))
+
         scene.add_geometry(
             [
                 create_path_geometry(p)
-                for p in create_normal_paths(current_path.reflections, 0.4)
+                for p in create_normal_paths_from_reflections(
+                    current_path.reflections, 0.4
+                )
             ]
         )
 
@@ -350,8 +371,14 @@ def visualize_reflections_step(
 
         itd = (current_path.distance - direct_dist) / 343 * 1000
         print(f"ITD:{itd}ms")
-        print(f"gain:{current_path.gain}dB")
+        print(
+            f"gain contribution from reflections:{current_path.gain_from_reflections}dB"
+        )
+        print(f"gain contribution from distance:{current_path.gain_from_distance}dB")
+        print(f"total gain:{current_path.gain}dB")
         print(f"shot gain:{current_path.shot.gain}dB")
+        print(f"yaw:{current_path.shot.yaw}deg")
+        print(f"pitch:{current_path.shot.pitch}deg")
         print(f"{len(current_path.reflections)} reflections")
         print(f"last reflection from {current_path.reflections[-1].surface.name}")
         print("\n")
@@ -405,6 +432,194 @@ def visualize_reflections_step(
             return
 
 
+def score_reflection_match(
+    path: AcousticPath,
+    target_itd: float,
+    target_gain: Optional[float] = None,
+    itd_window: float = 2.0,
+) -> Optional[float]:
+    """
+    Score how well a reflection matches the target ITD and gain.
+    Returns None if the reflection is outside the acceptable window.
+    Lower score is better.
+    """
+    # Calculate ITD for this path
+    direct_dist = math.sqrt(
+        ((path.nearest_approach.position.x - path.shot.ray.origin.x) ** 2)
+        + ((path.nearest_approach.position.y - path.shot.ray.origin.y) ** 2)
+        + ((path.nearest_approach.position.z - path.shot.ray.origin.z) ** 2)
+    )
+    path_itd = (path.distance - direct_dist) / 343 * 1000
+
+    # Check if within ITD window
+    itd_diff = abs(path_itd - target_itd)
+    if itd_diff > itd_window:
+        return None
+
+    # If no gain specified, just use ITD difference
+    if target_gain is None:
+        return itd_diff**2
+
+    # Check if within gain window (±9dB)
+    gain_diff = abs(path.gain - target_gain)
+    if gain_diff > 9.0:
+        return None
+
+    # Combined score using weighted sum
+    return (itd_diff**2) + (gain_diff**2 / 81)
+
+
+def find_matching_reflections(
+    acoustic_paths: List[AcousticPath],
+    target_itd: float,
+    target_gain: Optional[float] = None,
+    max_results: int = 1,
+) -> List[AcousticPath]:
+    """
+    Find reflections that best match the target ITD and optional gain.
+    Returns up to max_results paths, sorted by best match first.
+    """
+    # Score all paths and filter out None scores (outside window)
+    scored_paths = [
+        (path, score_reflection_match(path, target_itd, target_gain))
+        for path in acoustic_paths
+    ]
+    valid_paths = [(path, score) for path, score in scored_paths if score is not None]
+
+    # Sort by score (lower is better)
+    valid_paths.sort(key=lambda x: x[1])
+
+    # Return the best matching paths
+    return [path for path, _ in valid_paths[:max_results]]
+
+
+def visualize_matching_reflections(
+    room_mesh: trimesh.Trimesh,
+    acoustic_paths: list[AcousticPath],
+    points: list[Point] = None,
+    paths: list[Path] = None,
+    zones: list[Zone] = None,
+) -> None:
+    """Visualize the matching reflections (similar to step mode but without navigation)."""
+    if not acoustic_paths:
+        print("No matching reflections found!")
+        return
+
+    for i, current_path in enumerate(acoustic_paths):
+        # Create fresh scene for this reflection
+        scene = trimesh.Scene()
+
+        # Add room mesh
+        scene.add_geometry(room_mesh)
+
+        # Add static geometries
+        if points:
+            pc = create_point_cloud(points)
+            if pc:
+                scene.add_geometry(pc)
+
+        if paths:
+            for path in paths:
+                scene.add_geometry(create_path_geometry(path))
+
+        if zones:
+            for i, zone in enumerate(zones):
+                scene.add_geometry(create_zone_geometry(zone), node_name=f"zone_{i}")
+
+        # Add the matching acoustic path
+        scene.add_geometry(create_acoustic_path_geometry(current_path))
+        scene.add_geometry(
+            trimesh.PointCloud(
+                [
+                    current_path.nearest_approach.position.to_array(),
+                    current_path.shot.ray.origin.to_array(),
+                ]
+            ),
+        )
+
+        # Add normal vectors for reflections
+        scene.add_geometry(
+            [
+                create_path_geometry(p)
+                for p in create_normal_paths_from_reflections(
+                    current_path.reflections, 0.4
+                )
+            ]
+        )
+
+        # Calculate and display path information
+        direct_dist = math.sqrt(
+            (
+                (
+                    current_path.nearest_approach.position.x
+                    - current_path.shot.ray.origin.x
+                )
+                ** 2
+            )
+            + (
+                (
+                    current_path.nearest_approach.position.y
+                    - current_path.shot.ray.origin.y
+                )
+                ** 2
+            )
+            + (
+                (
+                    current_path.nearest_approach.position.z
+                    - current_path.shot.ray.origin.z
+                )
+                ** 2
+            )
+        )
+
+        itd = (current_path.distance - direct_dist) / 343 * 1000
+
+        print(f"\nMatching reflection {i + 1} of {len(acoustic_paths)}")
+        print(f"direct_dist: {direct_dist:.2f}")
+        print(f"path dist: {current_path.distance:.2f}")
+        print(f"ITD: {itd:.2f}ms")
+        print(f"gain: {current_path.gain:.2f}dB")
+        print(f"shot gain: {current_path.shot.gain:.2f}dB")
+        print(f"{len(current_path.reflections)} reflections")
+        print(f"last reflection from {current_path.reflections[-1].surface.name}")
+        print("\nPress any key to continue, 'q' to quit")
+
+        try:
+            # Create queue for key press communication
+            key_queue = Queue()
+
+            # Create and start visualization process
+            viz_process = Process(target=show_scene_and_wait, args=(scene, key_queue))
+            viz_process.start()
+
+            # Wait for input
+            key = input().lower()
+            if key == "q":
+                if viz_process.is_alive():
+                    viz_process.terminate()
+                viz_process.join()
+                return
+
+            # Clean up the visualization process
+            if viz_process.is_alive():
+                viz_process.terminate()
+            viz_process.join()
+
+        except KeyboardInterrupt:
+            print("\nExiting program...")
+            if viz_process.is_alive():
+                viz_process.terminate()
+                viz_process.join()
+            sys.exit(0)
+
+        except Exception as e:
+            print(f"\nError: {e}")
+            if viz_process.is_alive():
+                viz_process.terminate()
+                viz_process.join()
+            return
+
+
 def main():
     """Main function to visualize 3D mesh with annotations."""
     parser = argparse.ArgumentParser()
@@ -426,6 +641,16 @@ def main():
         action="store_true",
         help="Show the location of the final reflection in each arrival",
         default=False,
+    )
+    parser.add_argument(
+        "--search-itd",
+        type=float,
+        help="Search for reflection with specific ITD (in ms)",
+    )
+    parser.add_argument(
+        "--gain",
+        type=float,
+        help="Target gain for ITD search (in dB)",
     )
     args = parser.parse_args()
 
@@ -467,7 +692,25 @@ def main():
         if "zones" in data:
             zones = [Zone.from_dict(p) for p in data["zones"]]
 
-    acoustic_paths = filter_floor_bounce(acoustic_paths, ["Floor"])
+    # acoustic_paths = filter_floor_bounce(acoustic_paths, ["Floor"])
+
+    if args.search_itd is not None:
+        # Find and visualize matching reflections
+        matching_paths = find_matching_reflections(
+            acoustic_paths,
+            args.search_itd,
+            args.gain,
+            max_results=1,  # Currently hardcoded to 1, but easily changeable
+        )
+        if args.points:
+            visualize_last_reflection_positions(
+                room_mesh, matching_paths, points, paths, zones
+            )
+        else:
+            visualize_matching_reflections(
+                room_mesh, matching_paths, points, paths, zones
+            )
+        return
 
     if args.cull > 0.0:
         acoustic_paths = culling.cull_acoustic_paths(acoustic_paths, args.cull)
