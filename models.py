@@ -89,6 +89,7 @@ class Shot:
     gain: float  # stored in dB
     yaw: float  # stored in deg
     pitch: float  # stored in deg
+    source_name: str
 
     @classmethod
     def from_dict(cls, data: dict) -> "Shot":
@@ -99,6 +100,7 @@ class Shot:
             gain=data["gain"],
             yaw=data["yaw"],
             pitch=data["pitch"],
+            source_name=data["sourceName"],
         )
 
     def to_dict(self) -> dict:
@@ -109,6 +111,7 @@ class Shot:
             "gain": self.gain,
             "yaw": self.yaw,
             "pitch": self.pitch,
+            "sourceName": self.source_name,
         }
 
 

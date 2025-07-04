@@ -149,6 +149,20 @@ def itd(path: AcousticPath) -> float:
     return (path.distance - direct_distance(path)) / 343 * 1000
 
 
+def filter_by_source_name(
+    acoustic_paths: list[AcousticPath],
+    name: str,
+) -> list[AcousticPath]:
+    """
+    Filter paths to only include those with the specified source name.
+
+    Args:
+        acoustic_paths: List of acoustic paths to filter
+        name: Name of the source to filter by
+    """
+    return [path for path in acoustic_paths if path.shot.source_name == name]
+
+
 def filter_by_minimum_gain(
     acoustic_paths: list[AcousticPath], min_gain_db: float
 ) -> list[AcousticPath]:
@@ -754,6 +768,11 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("path", help="Path to the experiment")
     parser.add_argument(
+        "--filter-source",
+        type=str,
+        help="Filter reflections to only include those above the specified gain in",
+    )
+    parser.add_argument(
         "--filter-gain",
         type=float,
         help="Filter reflections to only include those above the specified gain in",
@@ -842,6 +861,9 @@ def main():
         # Add zones
         if "zones" in data:
             zones = [Zone.from_dict(p) for p in data["zones"]]
+
+    if args.filter_source:
+        acoustic_paths = filter_by_source_name(acoustic_paths, args.filter_source)
 
     if args.filter_walls:
         acoustic_paths = filter_by_walls(acoustic_paths, args.filter_walls)
