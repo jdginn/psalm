@@ -137,20 +137,97 @@ def create_normal_path(ray: Ray, length: float):
     )
 
 
-def filter_floor_bounce(
-    acoustic_paths: list[AcousticPath], floor_names: list[str]
+def direct_distance(path: AcousticPath) -> float:
+    return math.sqrt(
+        ((path.nearest_approach.position.x - path.shot.ray.origin.x) ** 2)
+        + ((path.nearest_approach.position.y - path.shot.ray.origin.y) ** 2)
+        + ((path.nearest_approach.position.z - path.shot.ray.origin.z) ** 2)
+    )
+
+
+def itd(path: AcousticPath) -> float:
+    return (path.distance - direct_distance(path)) / 343 * 1000
+
+
+def filter_by_minimum_gain(
+    acoustic_paths: list[AcousticPath], min_gain_db: float
 ) -> list[AcousticPath]:
-    """Filter out paths that bounce directly off the floor."""
-    paths = []
+    """
+    Filter paths to only include those with gain above the minimum threshold.
+
+    Args:
+        acoustic_paths: List of acoustic paths to filter
+        min_gain_db: Minimum gain threshold in dB
+
+    Returns:
+        List of acoustic paths with gain >= min_gain_db
+    """
+    return [path for path in acoustic_paths if path.gain >= min_gain_db]
+
+
+def filter_by_maximum_itd(
+    acoustic_paths: list[AcousticPath],
+    max_itd_ms: float,
+) -> list[AcousticPath]:
+    """
+    Filter paths to only include those that arrive before the maximum time threshold.
+
+    Args:
+        acoustic_paths: List of acoustic paths to filter
+        max_time_ms: Maximum time threshold in milliseconds
+
+    Returns:
+        List of acoustic paths that arrive before max_time_ms
+    """
+    filtered_paths = []
 
     for path in acoustic_paths:
-        # if (
-        #     len(path.reflections) == 2
-        #     and path.reflections[1].surface.name in floor_names
-        # ):
-        # continue
-        paths.append(path)
-    return paths
+        # Calculate direct path time
+
+        if itd(path) <= max_itd_ms:
+            filtered_paths.append(path)
+
+    return filtered_paths
+
+
+def filter_by_walls(
+    acoustic_paths: list[AcousticPath], wall_names: list[str]
+) -> list[AcousticPath]:
+    """
+    Filter paths to only include those that interact with any of the specified walls.
+    Uses OR logic - path is included if it touches ANY of the specified walls.
+    """
+    filtered_paths = []
+
+    for path in acoustic_paths:
+        # Check if any reflection in the path involves any of the specified walls
+        if any(
+            any(reflection.surface.name == wall_name for wall_name in wall_names)
+            for reflection in path.reflections
+        ):
+            filtered_paths.append(path)
+
+    return filtered_paths
+
+
+def exclude_by_walls(
+    acoustic_paths: list[AcousticPath], wall_names: list[str]
+) -> list[AcousticPath]:
+    """
+    Filter out paths that interact with any of the specified walls.
+    Path is excluded if it touches ANY of the specified walls.
+    """
+    filtered_paths = []
+
+    for path in acoustic_paths:
+        # Keep path only if it doesn't touch any of the excluded walls
+        if not any(
+            any(reflection.surface.name == wall_name for wall_name in wall_names)
+            for reflection in path.reflections
+        ):
+            filtered_paths.append(path)
+
+    return filtered_paths
 
 
 def show_scene_and_wait(scene: trimesh.Scene, key_queue: Queue) -> None:
@@ -217,7 +294,7 @@ def visualize_reflections(
     scene.show(flags={"wireframe": True})
 
 
-def visualize_last_reflection_positions(
+def plot_final_reflection_positions(
     room_mesh: trimesh.Trimesh,
     acoustic_paths: list[AcousticPath],
     points: list[Point] = None,
@@ -265,6 +342,58 @@ def visualize_last_reflection_positions(
                 ],
             )
         )
+    scene.show(flags={"wireframe": True})
+
+
+def plot_reflection_positions(
+    room_mesh: trimesh.Trimesh,
+    acoustic_paths: list[AcousticPath],
+    points: list[Point] = None,
+    paths: list[Path] = None,
+    zones: list[Zone] = None,
+) -> None:
+    """Interactive visualization of acoustic reflections with additional geometries."""
+
+    acoustic_paths.sort(key=lambda x: x.distance)
+    current_index = 0
+    total_paths = len(acoustic_paths)
+
+    # Create fresh scene for this reflection
+    scene = trimesh.Scene()
+
+    # Add room mesh
+    scene.add_geometry(room_mesh)
+
+    # Add static geometries
+    if points:
+        pc = create_point_cloud(points)
+        if pc:
+            scene.add_geometry(pc)
+
+    if paths:
+        for path in paths:
+            scene.add_geometry(create_path_geometry(path))
+
+    if zones:
+        for i, zone in enumerate(zones):
+            scene.add_geometry(create_zone_geometry(zone), node_name=f"zone_{i}")
+
+    if not acoustic_paths:
+        scene.show(flags={"wireframe": True})
+        return
+
+    for path in acoustic_paths:
+        for ref in path.reflections:
+            scene.add_geometry(
+                trimesh.PointCloud(
+                    vertices=[
+                        ref.position.to_array(),
+                    ],
+                    colors=[
+                        [255, 0, 0, 255],
+                    ],
+                )
+            )
     scene.show(flags={"wireframe": True})
 
 
@@ -625,6 +754,28 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("path", help="Path to the experiment")
     parser.add_argument(
+        "--filter-gain",
+        type=float,
+        help="Filter reflections to only include those above the specified gain in",
+        default=-100,
+    )
+    parser.add_argument(
+        "--filter-itd",
+        type=float,
+        help="Filter reflections to only include those below the specified itd in ms",
+        default=150,
+    )
+    parser.add_argument(
+        "--filter-walls",
+        nargs="+",
+        help="Filter reflections to only include those that interact with the specified walls (OR logic)",
+    )
+    parser.add_argument(
+        "--exclude-walls",
+        nargs="+",
+        help="Exclude reflections that interact with any of the specified walls",
+    )
+    parser.add_argument(
         "--step",
         action="store_true",
         help="Step through reflections one at a time",
@@ -692,7 +843,17 @@ def main():
         if "zones" in data:
             zones = [Zone.from_dict(p) for p in data["zones"]]
 
-    # acoustic_paths = filter_floor_bounce(acoustic_paths, ["Floor"])
+    if args.filter_walls:
+        acoustic_paths = filter_by_walls(acoustic_paths, args.filter_walls)
+
+    if args.exclude_walls:
+        acoustic_paths = exclude_by_walls(acoustic_paths, args.exclude_walls)
+
+    if args.filter_gain:
+        acoustic_paths = filter_by_minimum_gain(acoustic_paths, args.filter_gain)
+
+    if args.filter_itd:
+        acoustic_paths = filter_by_maximum_itd(acoustic_paths, args.filter_itd)
 
     if args.search_itd is not None:
         # Find and visualize matching reflections
@@ -703,9 +864,7 @@ def main():
             max_results=1,  # Currently hardcoded to 1, but easily changeable
         )
         if args.points:
-            visualize_last_reflection_positions(
-                room_mesh, matching_paths, points, paths, zones
-            )
+            plot_reflection_positions(room_mesh, matching_paths, points, paths, zones)
         else:
             visualize_matching_reflections(
                 room_mesh, matching_paths, points, paths, zones
@@ -716,9 +875,7 @@ def main():
         acoustic_paths = culling.cull_acoustic_paths(acoustic_paths, args.cull)
 
     if args.points:
-        visualize_last_reflection_positions(
-            room_mesh, acoustic_paths, points, paths, zones
-        )
+        plot_reflection_positions(room_mesh, acoustic_paths, points, paths, zones)
         return
     if args.step:
         visualize_reflections_step(room_mesh, acoustic_paths, points, paths, zones)
