@@ -397,17 +397,29 @@ def plot_reflection_positions(
         return
 
     for path in acoustic_paths:
-        for ref in path.reflections:
-            scene.add_geometry(
-                trimesh.PointCloud(
-                    vertices=[
-                        ref.position.to_array(),
-                    ],
-                    colors=[
-                        [255, 0, 0, 255],
-                    ],
+        for i, ref in enumerate(path.reflections):
+            if i == len(path.reflections) - 1:
+                scene.add_geometry(
+                    trimesh.PointCloud(
+                        vertices=[
+                            ref.position.to_array(),
+                        ],
+                        colors=[
+                            [255, 0, 0, 255],
+                        ],
+                    )
                 )
-            )
+            else:
+                scene.add_geometry(
+                    trimesh.PointCloud(
+                        vertices=[
+                            ref.position.to_array(),
+                        ],
+                        colors=[
+                            [0, 0, 255, 255],
+                        ],
+                    )
+                )
     scene.show(flags={"wireframe": True})
 
 
@@ -887,6 +899,7 @@ def main():
         )
         if args.points:
             plot_reflection_positions(room_mesh, matching_paths, points, paths, zones)
+            return
         else:
             visualize_matching_reflections(
                 room_mesh, matching_paths, points, paths, zones
