@@ -536,6 +536,7 @@ def visualize_reflections_step(
         print(f"pitch:{current_path.shot.pitch}deg")
         print(f"{len(current_path.reflections)} reflections")
         print(f"last reflection from {current_path.reflections[-1].surface.name}")
+        print(f"reflection position: {current_path.reflections[-1].position}")
         print("\n")
         print("Press 'n' for next, 'p' for previous, 'q' to quit")
 
@@ -737,6 +738,7 @@ def visualize_matching_reflections(
         print(f"shot gain: {current_path.shot.gain:.2f}dB")
         print(f"{len(current_path.reflections)} reflections")
         print(f"last reflection from {current_path.reflections[-1].surface.name}")
+        print(f"reflection position: {current_path.reflections[-1].position}")
         print("\nPress any key to continue, 'q' to quit")
 
         try:
